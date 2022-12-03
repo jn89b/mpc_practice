@@ -65,23 +65,21 @@ class ToyCar():
         
     def set_state_space(self):
         #this is where I do the dynamics for state space
-        x_dot = self.v_cmd * ca.cos(self.psi)
-        y_dot = self.v_cmd * ca.sin(self.psi)
-        psi_dot = self.psi_cmd
+        self.x_dot = self.v_cmd * ca.cos(self.psi)
+        self.y_dot = self.v_cmd * ca.sin(self.psi)
+        self.psi_dot = self.psi_cmd
         
         self.z_dot = ca.vertcat(
-            x_dot, y_dot, psi_dot    
+            self.x_dot, self.y_dot, self.psi_dot    
         )
         
-        
         #ODE right hand side function
-        function = ca.Function('f', 
+        self.function = ca.Function('f', 
                         [self.states, self.controls],
                         [self.z_dot]
                         ) 
         
-        return function
-    
+        return self.function
     
 
 def shift_timestep(step_horizon, t0, state_init, u, f):
@@ -101,7 +99,41 @@ def DM2Arr(dm): #convert sparse matrix to full
     return np.array(dm.full())
 
 
+class Optimization():
+    """
+    Tightly coupled with the quadcopter 
+    
+    """
+    def __init__(self, model, dt_val, N):
+        self.model = model
+        self.f = model.function        
+        
+        self.n_states = model.n_states
+        self.n_controls = model.n_controls
+        
+        self.dt_val = dt_val 
+        self.N = N
+        
+                
+        """this needs to be changed, let user define this"""
+        self.Q = ca.diagcat(20.0, 20.0, 5.0) # weights for states
+        self.R = ca.diagcat(1.0, 1.0) # weights for controls
+        
+        #initialize cost function as 0
+        self.cost_fn = 0
+        
+    def init_decision_variables(self):
+        """intialize decision variables for state space models"""
+        self.X = ca.SX.sym('X', self.n_states, self.N + 1)
+        self.U = ca.SX.sym('U', self.n_controls, self.N)
+        
+        #column vector for storing initial and target locations
+        self.P = ca.SX.sym('P', self.n_states + self.n_states)
+        
+        #dynamic constraints 
+        self.g = self.X[:,0] - self.P[:self.n_states]
 
+                
 #%% Problem formulation
 toy_car = ToyCar()
 f = toy_car.set_state_space()
@@ -109,25 +141,23 @@ f = toy_car.set_state_space()
 n_states = toy_car.n_states
 n_controls = toy_car.n_controls
 
-## Optimization Formulation
-# matrix containing all states over all time steps +1 (each column is a state vector)
-X = ca.SX.sym('X', n_states, N + 1)
+optimizer = Optimization(toy_car, step_horizon, N)
+# optimizer.set_state_space()
+optimizer.init_decision_variables()
 
-# matrix containing all control actions over all time steps (each column is an action vector)
-U = ca.SX.sym('U', n_controls, N)
+f = optimizer.f
 
-# coloumn vector for storing initial state and target state
-P = ca.SX.sym('P', n_states + n_states)
+X = optimizer.X
+U = optimizer.U
 
-# state weights matrix (Q_X, Q_Y, Q_THETA)
-Q = ca.diagcat(20.0, 20.0, 5.0)
+P = optimizer.P
+Q = optimizer.Q
+R = optimizer.R
 
-# controls weights matrix
-R = ca.diagcat(1.0, 1.0)
+g = optimizer.g
+cost_fn = optimizer.cost_fn
 
-g = X[:, 0] - P[:n_states]  # constraints in the equation
-
-cost_fn = 0  # cost function
+# cost_fn = 0  # cost function
 
 for k in range(N):
     states = X[:, k]
@@ -146,7 +176,6 @@ for k in range(N):
     k4 = f(states + step_horizon * k3, controls)
     state_next_RK4 = states + (step_horizon / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
     g = ca.vertcat(g, state_next - state_next_RK4)
-
 
 
 OPT_variables = ca.vertcat(
@@ -208,32 +237,10 @@ t = ca.DM(t0)
 u0 = ca.DM.zeros((n_controls, N))  # initial control
 X0 = ca.repmat(state_init, 1, N+1)         # initial state full
 
-
 mpc_iter = 0
 cat_states = DM2Arr(X0) # size is number states x number of N x number of mpc_iterations 
 cat_controls = DM2Arr(u0[:, 0])
 times = np.array([[0]]) 
-
-args['p'] = ca.vertcat(
-    state_init,    # current state
-    state_target   # target state
-)
-
-# optimization variable current state
-args['x0'] = ca.vertcat(
-    ca.reshape(X0, n_states*(N+1), 1),
-    ca.reshape(u0, n_controls*N, 1)
-)
-
-
-sol = solver(
-    x0=args['x0'],
-    lbx=args['lbx'],
-    ubx=args['ubx'],
-    lbg=args['lbg'],
-    ubg=args['ubg'],
-    p=args['p']
-)
 
 solution_list = []
 
@@ -247,6 +254,7 @@ if __name__ == '__main__':
         #get time reference
         t1 = time()
         
+        #this is where you can update the target location
         args['p'] = ca.vertcat(
             state_init,    # current state
             state_target   # target state
@@ -285,8 +293,11 @@ if __name__ == '__main__':
             t0
         ))
 
+        #this is where we shift the time step
         t0, state_init, u0 = shift_timestep(step_horizon, t0, state_init, u, f)
 
+
+        # storing data
         # print(X0)
         X0 = ca.horzcat(
             X0[:, 1:],

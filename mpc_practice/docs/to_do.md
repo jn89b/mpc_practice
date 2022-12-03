@@ -1,6 +1,6 @@
 # To Do
-- [] Get Trajectory Control to work 
-= [] Get MPC to work
+- [X] Get Trajectory Control to work 
+= [X] Get MPC to work
 = [] Modularize code to take in states of system 
 
 
