@@ -1,144 +1,158 @@
 import casadi as ca
-import math 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from time import time
+import numpy as np 
+import math
+from time import time 
 
-"""
-Omni does not stack - VICON 
 
-https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8442967
+m = 1          # Mass of the quadrotor [kg]
+g = 9.8         # Gravity [m/s^2]
+Ix = 4e-3       # Moment of inertia about Bx axis [kg.m^2]
+Iy = 4e-3       # Moment of inertia about By axis [kg.m^2]
+Iz = 8.4e-3     # Moment of inertia about Bz axis [kg.m^2]
+L = 0.2        # Quadrotor arm length [m]
+b = 29e-6       # Thrust coefficient [N.s^2]
+d = 1.1e-6      # Drag coefficient [N.m.s^2]
 
-Differential Flat Quadcopter, 
-system x_dot is flat if there exists flat outputs 
+U1 = g 
 
-That is the dimension of y and equal to the dimension of u
+step_horizon = 0.1 #time between steps in seconds
+N = 25   #horizon length
 
-For quadcopter:
-    If I know the x,y,z, yaw position 
-    then I can back out and find the states and actions
-    for the quadcopter to get there, thrusters included 
-
-For a plane with a carrying load (lots of DF):
-    If I know the trajectory of the load
-    Then I can back out and find the states and actions 
-    of the plane's states and inputs to get the load to move       
-
-The Optimization HAS a model it wants to optimize -> Composition
-
-"""
-thrust_max = 1
-thrust_min = -1
-
-vel_min = -5
-vel_max = 5
-
-psi_min = -np.deg2rad(45)
-psi_max = np.deg2rad(45)
-
-class FlatQuadcopter():
+thrust_max = 5# Newtons
+thrust_min = -5
+ 
+class FullQuad():
+    """
+    Full 6 DOF Quadcopter
+    https://robotics.stackexchange.com/questions/11509/how-to-find-state-space-representation-of-quadcopter
+    """
+    
     def __init__(self):
-        
-        #model constants for dj100 from paper
-        self.k_x = 1 
-        self.k_y = 1 
-        self.k_z = 1 
-        self.k_psi = np.pi/180
-        
-        #tau constaints
-        self.tau_x = 0.8355
-        self.tau_y = 0.7701
-        self.tau_z = 0.5013
-        self.tau_psi = 0.5142 
-        
         self.define_states()
+        self.set_helper_variables()
         self.define_controls()
         
-    def define_states(self) -> None:
-        """
-        define the 8 flat states of the quadcopter
-        
-        [x, y, z, psi, vx, vy, vz, psi_dot]
-        
-        """
+    def define_states(self):
+        """12 state space system of quadcopter"""
         
         self.x = ca.SX.sym('x')
-        self.y = ca.SX.sym('y')
-        self.z = ca.SX.sym('z')
-        self.psi = ca.SX.sym('psi')
+        self.x_dot = ca.SX.sym('x_dot')
         
-        self.vx = ca.SX.sym('vx')
-        self.vy = ca.SX.sym('vy')
-        self.vz = ca.SX.sym('vz')
-        self.psi_dot = ca.SX.sym('psi')
+        self.y = ca.SX.sym('y')
+        self.y_dot = ca.SX.sym('y_dot')
+        
+        self.z = ca.SX.sym('z')
+        self.z_dot = ca.SX.sym('z_dot')
+        
+        self.phi = ca.SX.sym('phi')
+        self.phi_dot = ca.SX.sym('phi_dot')
+        
+        self.theta = ca.SX.sym('theta')
+        self.theta_dot = ca.SX.sym('theta_dot')
+        
+        self.psi = ca.SX.sym('psi')
+        self.psi_dot = ca.SX.sym('psi_dot')
         
         self.states = ca.vertcat(
-            self.x, 
-            self.y,
-            self.z,
+            self.x,
+            self.x_dot, 
+            self.y, 
+            self.y_dot,
+            self.z, 
+            self.z_dot,
+            self.phi,
+            self.phi_dot,
+            self.theta, 
+            self.theta_dot,
             self.psi,
-            self.vx,
-            self.vy,
-            self.vz, 
             self.psi_dot
-        )
+            )
         
-        #column vector of 3 x 1
         self.n_states = self.states.size()[0] #is a column vector 
+ 
         
-        
-    def define_controls(self) -> None:
+    def define_controls(self):
         """4 motors"""
-        self.u_0 = ca.SX.sym('u_0')
         self.u_1 = ca.SX.sym('u_1')
         self.u_2 = ca.SX.sym('u_2')
         self.u_3 = ca.SX.sym('u_3')
+        self.u_4 = ca.SX.sym('u_4')
         
         self.controls = ca.vertcat(
-            self.u_0,
             self.u_1,
             self.u_2,
-            self.u_3
+            self.u_3,
+            self.u_4
         )
         
-        #column vector of 2 x 1
         self.n_controls = self.controls.size()[0] 
-        
-        
-    def set_state_space(self) -> None:
-        #this is where I do the dynamics for state space
-        self.z_0 = self.vx * ca.cos(self.psi) - self.vy * ca.sin(self.psi)
-        self.z_1 = self.vx * ca.sin(self.psi) + self.vy * ca.cos(self.psi)
-        self.z_2 = self.vz
-        self.z_3 = self.psi_dot
-        
-        self.x_ddot = -(self.vx + (self.k_x * self.u_0))
-        self.y_ddot = -(self.vy + (self.k_y * self.u_1))
-        self.z_ddot = -(self.vz + (self.k_z * self.u_2))
-        self.psi_ddot = -(self.psi_dot + (self.k_psi * self.u_3))
 
-        #renamed it as z because I have an x variable, avoid confusion    
+    def set_helper_variables(self):
+        """set formulation of z_dot = ax + bu"""
+        self.a1 = g/self.x
+        self.a2 = self.psi_dot * (Iy - Iz)/Ix
+        self.a3 = self.psi_dot * (Iz - Ix)/Iy
+        self.a4 = self.psi_dot * (Ix - Iy)/Iz
+        
+        self.b1 = -((ca.cos(self.psi) * ca.sin(self.theta) * ca.cos(self.psi)) + \
+            (ca.sin(self.psi) * ca.sin(self.psi))) / m
+        
+        self.b2 = -((ca.cos(self.psi) * ca.sin(self.theta) * ca.sin(self.psi)) + \
+            (ca.sin(self.psi) * ca.cos(self.psi))) / m    
+        
+        self.b3 = -(ca.cos(self.psi) * ca.sin(self.theta))/m
+        
+        self.b4 = L/Ix
+        self.b5 = L/Iy 
+        self.b6 = 1/Iz
+        
+    def set_state_space(self):
+        """z_dot = ax + bu"""
+        self.z_0 = self.states[0] #x_dot
+        #self.z_1 = self.b1 * self.u_1 #x_ddot
+        self.z_1 = ca.sin(self.u_1) * U1 / m
+        
+        self.z_2 = self.states[3] #y_dot
+        #self.z_3 = self.b2 * self.u_1 #y_ddot
+        self.z_3 = ca.sin(self.u_1) * U1 / m
+        
+        self.z_4 = self.states[5] #z_dot
+        #self.z_5 = (self.states[0] * self.a1) + (self.u_1 * self.b3) #z_ddot
+        self.z_5 = (g - self.u_1)/ m#z_ddot
+        
+        self.z_6 = self.states[7] #phi_dot
+        #self.z_7 = (self.states[9] * self.a2) + (self.u_2 * self.b4)
+        self.z_7 = (self.states[9] * self.states[11] * (Iy- Iz)) + (self.u_2 * self.b4) #phi_ddot
+        
+        self.z_8 = self.states[9] #theta_dot
+        #self.z_9 = (self.states[7] * self.a3) + (self.u_3 * self.b5) #theta_ddot
+        self.z_9 = (self.states[7] * self.states[11] * (Iz-Ix)) + (self.u_3 * self.b5) #theta_ddot
+        
+        self.z_10 = self.states[11] #psi_dot 
+        #self.z_11 = (self.states[9]*self.a4) + (self.u_4 * self.b6)
+        self.z_11 = (self.states[9]*self.states[7] * (Ix-Iy)) + (self.u_4 * self.b6)
+        
         self.z_dot = ca.vertcat(
-            self.z_0, 
-            self.z_1, 
-            self.z_2, 
+            self.z_0,
+            self.z_1,
+            self.z_2,
             self.z_3,
-            self.x_ddot, 
-            self.y_ddot, 
-            self.z_ddot, 
-            self.psi_ddot
+            self.z_4,
+            self.z_5, 
+            self.z_6,
+            self.z_7,
+            self.z_8,
+            self.z_9,
+            self.z_10,
+            self.z_11
         )
         
-        #ODE right hand side function
-        self.function = ca.Function('f', 
-                        [self.states, self.controls],
-                        [self.z_dot]
-                        ) 
+        self.function = ca.Function('f',
+                                    [self.states, self.controls],
+                                    [self.z_dot]
+                                    )
         
-        return self.function
-        
-        
+
 class Optimization():
     
     def __init__(self, model, dt_val, N):
@@ -152,14 +166,18 @@ class Optimization():
         self.N = N
         
         """this needs to be changed, let user define this"""
-        self.Q = ca.diagcat(100.0, 
-                            100.0, 
-                            100.0,
-                            100.0,
-                            1.0,
-                            1.0,
-                            1.0,
-                            1.0)
+        self.Q = ca.diagcat(20.0, 
+                            20.0, 
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0,
+                            20.0) # weights for states
         
         self.R = ca.diagcat(1.0, 
                             1.0,
@@ -208,20 +226,6 @@ class Optimization():
         REFACTOR THIS
         """
         #right now still coupled with state space system, 0 means velcoity 1 is psi rate
-        self.lbx['X'][4,:] = vel_min
-        self.ubx['X'][4,:] = vel_max
-        
-        self.lbx['X'][5,:] = vel_min 
-        self.ubx['X'][5,:] = vel_max
-        
-        self.lbx['X'][6,:] = vel_min 
-        self.ubx['X'][6,:] = vel_max
-        
-        
-        self.lbx['X'][7,:] = psi_min
-        self.ubx['X'][7,:] = psi_max
-        
-        
         self.lbx['U'][0,:] = thrust_min
         self.ubx['U'][0,:] = thrust_max
 
@@ -288,69 +292,6 @@ class Optimization():
         
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
 
-    def solve_trajectory(self,start, goal):
-        """solve just the traectory"""
-        #Packing the solution into a single row vector
-        main_loop = time()  # return time in sec
-        n_states = self.n_states
-        n_controls = self.n_controls
-        solution_list = []
-        
-
-        self.state_init = ca.DM(start)        # initial state
-        self.state_target = ca.DM(goal)  # target state
-        self.t0 = t0
-        self.u0 = ca.DM.zeros((self.n_controls, self.N))  # initial control
-        self.X0 = ca.repmat(self.state_init, 1, self.N+1)         # initial state full
-        self.mpc_iter = mpc_iter
-        times = np.array([[0]]) 
-        
-        time_history = [self.t0]
-
-        t1 = time()
-
-        ## the arguments are what I care about
-        args = {
-            'lbg': ca.DM.zeros((self.n_states*(self.N+1), 1)),  # constraints lower bound
-            'ubg': ca.DM.zeros((self.n_states*(self.N+1), 1)),  # constraints upper bound
-            'lbx': self.pack_variables_fn(**self.lbx)['flat'],
-            'ubx': self.pack_variables_fn(**self.ubx)['flat'],
-        }
-
-        #this is where you can update the target location
-        args['p'] = ca.vertcat(
-            self.state_init,    # current state
-            self.state_target   # target state
-        )
-        
-        # optimization variable current state
-        args['x0'] = ca.vertcat(
-            ca.reshape(self.X0, n_states*(self.N+1), 1),
-            ca.reshape(self.u0, n_controls*self.N, 1)
-        )
-
-        #this is where we solve
-        sol = self.solver(
-            x0=args['x0'],
-            lbx=args['lbx'],
-            ubx=args['ubx'],
-            lbg=args['lbg'],
-            ubg=args['ubg'],
-            p=args['p']
-        )
-
-        main_loop_time = time()
-        ss_error = ca.norm_2(self.state_init - self.state_target)
-        
-        solution_list.append((self.u, self.X0))
-
-        print('\n\n')
-        print('Total time: ', main_loop_time - main_loop)
-        print('avg iteration time: ', np.array(times).mean() * 1000, 'ms')
-        print('final error: ', ss_error)
-         
-        return time_history, sol
-
 
     def solve_mpc(self,start, goal, t0, mpc_iter, sim_time):
         """main loop to solve for MPC"""
@@ -360,6 +301,7 @@ class Optimization():
         n_controls = self.n_controls
         solution_list = []
         
+
         self.state_init = ca.DM(start)        # initial state
         self.state_target = ca.DM(goal)  # target state
         self.t0 = t0
@@ -468,56 +410,69 @@ def shift_timestep(step_horizon, t_init, state_init, u, f):
 
     return next_t, next_state, next_control
 
-# def DM2Arr(dm): #convert sparse matrix to full 
-#     return np.array(dm.full())
+def DM2Arr(dm): #convert sparse matrix to full 
+    return np.array(dm.full())
 
-        
-if __name__=='__main__':
-    
-    flat_quad = FlatQuadcopter()
-    f = flat_quad.set_state_space()
-    step_horizon = 0.1
-    N = 25
 
+if __name__ == '__main__':
+    fullquad = FullQuad()
+    f = fullquad.set_state_space()
+   
     # #intial times
     t0 = 0
     mpc_iter = 0
-    sim_time = 50
-
-    x_init = 0
-    y_init = 0
-    z_init = 1
-    psi_init = 0
-
-    x_target = 10
-    y_target = 10
-    z_target = 2
-    psi_target = np.deg2rad(45)
-
-    start = [x_init, y_init, z_init, psi_init,
-             0, 0, 0, 0]
+    sim_time = 10
     
-    end = [x_target, y_target, z_target, psi_target,
-           0, 0, 0, 0 ]
-
-    n_states = flat_quad.n_states
-    n_controls = flat_quad.n_controls
+    x_init = 0
+    y_init = 0 
+    z_init = 0
+    
+    x_end = 2
+    y_end = 2
+    z_end = 2
+    
+    start = [x_init,
+             0,
+             y_init, 
+             0, 
+             z_init,
+             0,
+             0,
+             0,
+             0,
+             0,
+             0,
+             0]
+    
+    end = [x_end,
+             0,
+             y_end, 
+             0, 
+             z_end,
+             0,
+             0,
+             0,
+             0,
+             0,
+             0,
+             0]
+    
+    n_states = fullquad.n_states
+    n_controls = fullquad.n_controls
 
     #### Optimization Process ######### 
-    optimizer = Optimization(flat_quad, step_horizon, N)
+    optimizer = Optimization(fullquad, step_horizon, N)
     optimizer.init_decision_variables()
     optimizer.compute_cost()
     optimizer.init_solver()
     optimizer.define_bound_constraints()
-    
-    #%% 
+
+
     #### Find soluton time
     times, solution_list = optimizer.solve_mpc(start, end, t0, mpc_iter, sim_time)
 
-
     #%% Visualize results 
     import matplotlib.pyplot as plt
-    import seaborn as sns
     from matplotlib import animation
 
     plt.close('all')
@@ -529,124 +484,39 @@ if __name__=='__main__':
     
     actual_x = []
     actual_y = []
-    actual_z = []
     actual_psi = []
     
     horizon_x = []
     horizon_y = []
-    horizon_z = []
+    horizon_psi = []
     
     for state in state_info:
         state = np.asarray(state)
         
         actual_x.append(state[0,0])
-        actual_y.append(state[1,0])
-        actual_z.append(state[2,0])
-        
+        actual_y.append(state[2,0])
+        actual_psi.append(state[4,0 ])
         
         horizon_x.append(state[0,1:])
         horizon_y.append(state[1,1:])
-        horizon_z.append(state[2,1:])
+        horizon_psi.append(state[2,1:])
+    
+    #actual_vel = [np.array(control[0,0]) for control in control_info]
+    #actual_psi = [np.array(control[1,0]) for control in control_info]
+    
+    horizon_psi_rate = [np.array(control[1,1:]) for control in control_info]
+    
+    fig1, ax1 = plt.subplots(figsize=(8,8))
+    ax1.plot(actual_x, actual_y)
+    ax1.plot(x_end, y_end, 'x')
     
     
-    overall_horizon_x = []
-    overall_horizon_y = []
-    overall_horizon_z = []
+    fig2, ax2 = plt.subplots(figsize=(8,8))
+    ax2.plot(times[1:], np.rad2deg(actual_psi))
     
-    for x,y,z in zip(horizon_x, horizon_y, horizon_z):
-        overall_horizon_x.extend(x)
-        overall_horizon_y.extend(y)        
-        overall_horizon_z.extend(z)
-        
-
+    actual_pos_array = np.transpose(
+        np.array((actual_x, actual_y, actual_psi), dtype=float))
     
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(projection='3d'))
-    ax.plot(x_target, y_target, z_target, 'x', markersize=20, label='goal position')
-    ax.plot(actual_x, actual_y, actual_z)
+    horizon_pos_array = np.transpose(
+        np.array((horizon_x, horizon_y, horizon_psi), dtype=float))
     
-    
-    ## Animation
-    """format position"""
-    actual_pos_array = np.array([actual_x, actual_y, actual_z])
-    horizon_pos_array = np.array([overall_horizon_x, overall_horizon_y, 
-                                  overall_horizon_z])
-    
-
-    buffer = 2
-    min_x = min(actual_x)
-    max_x = max(actual_x)
-    
-    min_y = min(actual_y)
-    max_y = max(actual_y)
-    
-    min_z = min(actual_z)
-    max_z = max(actual_z)
-
-    TIME_SPAN = 5
-    position_data = [actual_pos_array, horizon_pos_array]
-    labels = ['Actual Position', 'Horizon']
-    
-    fig2, ax2 = plt.subplots(figsize=(6, 6), subplot_kw=dict(projection='3d'))
-    
-    ax2.set_xlim([min_x-buffer, max_x+buffer])
-    ax2.set_ylim([min_y-buffer, max_y+buffer])
-    ax2.set_zlim([min_z-buffer, max_z+buffer])
-    
-    ax2.plot(x_init, y_init, z_init, 'x', markersize=10, label='start')
-    ax2.plot(x_target, y_target, z_target, 'x', markersize=10,label='end')
-    
-    lines = [ax2.plot([], [], [])[0] for _ in range(len(position_data))] 
-    # line2, = ax2.plot(horizon_pos_array[0,0], 
-    #                   horizon_pos_array[1,0],
-    #                   horizon_pos_array[2,0])
-    
-    color_list = sns.color_palette("hls", len(position_data))
-    # ax.scatter(5,5,1, s=100, c='g')
-    for i, line in enumerate(lines):
-        line._color = color_list[i]
-        #line._color = color_map[uav_list[i]]
-        line._linewidth = 5.0
-        line.set_label(labels[i])
-        
-    patches = lines
-
-    def init():
-        lines = [ax2.plot(uav[0, 0:1], uav[1, 0:1], uav[2, 0:1])[0] for uav in position_data]
-        
-        #scatters = [ax.scatter3D(uav[0, 0:1], uav[1, 0:1], uav[2, 0:1])[0] for uav in data]
-
-        return patches
-    
-    def update_lines(num, dataLines, lines):
-        count = 0 
-        for i, (line, data) in enumerate(zip(lines, dataLines)):
-            #NOTE: there is no .set_data() for 3 dim data...
-            time_span = TIME_SPAN
-            if num < time_span:
-                interval = 0
-            else:
-                interval = num - time_span
-                
-            if i == 1:
-                line.set_data(data[:2, N*num:N*num+N])
-                line.set_3d_properties(data[2, N*num:N*num+N])
-            else:
-                
-                line.set_data(data[:2, interval:num])
-                line.set_3d_properties(data[2, interval:num])
-            
-            count +=1
-        
-        return patches
-    
-    # color_list = sns.color_palette("hls", num_columns)
-    # patches = set_lines(lines, color_list, column_names)
-
-    ax2.legend()
-    line_ani = animation.FuncAnimation(fig2, update_lines, fargs=(position_data, patches), init_func=init,
-                                        interval=0.2, blit=True, repeat=True, frames=position_data[0].shape[1]+1)
-    # line_ani.save('quad_mpc.gif', writer='imagemagick', fps=60)
-
-    
-    
-   
