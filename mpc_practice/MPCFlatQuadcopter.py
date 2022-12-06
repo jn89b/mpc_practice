@@ -105,7 +105,6 @@ class FlatQuadcopter():
         #column vector of 2 x 1
         self.n_controls = self.controls.size()[0] 
         
-        
     def set_state_space(self) -> None:
         #this is where I do the dynamics for state space
         self.z_0 = self.vx * ca.cos(self.psi) - self.vy * ca.sin(self.psi)
@@ -369,7 +368,6 @@ class Optimization():
         times = np.array([[0]]) 
         
         time_history = [self.t0]
-
 
         while (ca.norm_2(self.state_init - self.state_target) > 1e-1) \
             and (self.t0 < sim_time):
