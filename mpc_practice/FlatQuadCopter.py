@@ -209,12 +209,12 @@ if __name__=='__main__':
     weights = [1, 1 ,1]
 
     #cost function to minimize position from goal and obstacle avoidance
-    # cost_value = ca.sumsqr(e_x) + ca.sumsqr(e_y) + \
-    #     ca.sumsqr(e_z) + (weights[-1]* ca.sumsqr(e_psi)) + \
-    #         5000*ca.sumsqr(safe_cost) +  ca.sumsqr(U)
-
     cost_value = ca.sumsqr(e_x) + ca.sumsqr(e_y) + \
-        ca.sumsqr(e_z) + (weights[-1]* ca.sumsqr(e_psi)) + ca.sumsqr(U)
+        ca.sumsqr(e_z) + (weights[-1]* ca.sumsqr(e_psi)) + \
+            5000*ca.sumsqr(safe_cost) +  ca.sumsqr(U)
+
+    # cost_value = ca.sumsqr(e_x) + ca.sumsqr(e_y) + \
+    #     ca.sumsqr(e_z) + (weights[-1]* ca.sumsqr(e_psi)) + ca.sumsqr(U)
 
     opti.minimize(cost_value)
     

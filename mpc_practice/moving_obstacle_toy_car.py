@@ -1,9 +1,10 @@
 from time import time 
 import casadi as ca
 import numpy as np
+import random 
 
-step_horizon = 0.05 #time between steps in seconds 
-N = 50 #number of look ahead steps
+step_horizon = 0.1 #time between steps in seconds 
+N = 45 #number of look ahead steps
 
 #intial parameters
 X_BOUND = 20
@@ -14,25 +15,26 @@ psi_init = 0
 
 
 ## GlOBAL OBSTACLE
-OBS_X = 1.5
-OBS_Y = 1.5
+OBS_X = 2.5
+OBS_Y = 2.5
 
-rob_diam = 0.25
-obs_diam = 1.0
+rob_diam = 0.3
+obs_diam = 1.5
 
 
 #target parameters
-x_target = 5
-y_target = 5
+x_target = 4.5
+y_target = 4.5
 psi_target = np.deg2rad(45)
 
-v_max = 5
-v_min = -5
+v_max = 1
+v_min = 0
 
-psi_rate_max = np.deg2rad(45)
+psi_rate_max = np.deg2rad(60)
 psi_rate_min = - psi_rate_max
 
 sim_time = 15      # simulation time seconds
+
 
 
 class ToyCar():
@@ -109,8 +111,10 @@ class Optimization():
         self.N = N
 
         """this needs to be changed, let user define this"""
-        self.Q = ca.diagcat(1.0, 1.0,1.0) # weights for states
+        self.Q = ca.diagcat(100.0, 100.0,1.0) # weights for states
         self.R = ca.diagcat(1.0, 1.0) # weights for controls
+        
+        self.Q_matrix = [1, 1, 1]
         
         #initialize cost function as 0
         self.cost_fn = 0
@@ -123,8 +127,6 @@ class Optimization():
         #column vector for storing initial and target locations
         self.P = ca.SX.sym('P', self.n_states + self.n_states)
         
-        #dynamic constraints 
-        self.g = self.X[:,0] - self.P[:self.n_states]
 
     def define_bound_constraints(self):
         """define bound constraints of system"""
@@ -157,6 +159,10 @@ class Optimization():
     def compute_cost(self):
         """this is where we do integration methods to find cost"""
         #tired of writing self
+        #dynamic constraints 
+        self.g = []
+        self.g = self.X[:,0] - self.P[:self.n_states]
+        
         P = self.P
         Q = self.Q
         R = self.R
@@ -171,11 +177,14 @@ class Optimization():
             states = self.X[:, k]
             controls = self.U[:, k]
             state_next = self.X[:, k+1]
+            
+            e = self.X[:,k] - self.state_target 
+            self.cost_fn = self.cost_fn + ca.sumsqr(e) + ca.sumsqr(controls)
 
-            #penalize states and controls for now, can add other stuff too
-            self.cost_fn = self.cost_fn \
-                + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
-                + controls.T @ R @ controls 
+            # #penalize states and controls for now, can add other stuff too
+            # self.cost_fn = self.cost_fn \
+            #     + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
+            #     + controls.T @ R @ controls                 
 
             # self.cost_fn =             
             ##Runge Kutta
@@ -193,8 +202,16 @@ class Optimization():
             obst_constraint = -ca.sqrt((x_pos - OBS_X)**2 + \
                                        (y_pos - OBS_Y)**2 + \
                                         (rob_diam) + (obs_diam/2))
+            
+            obs_distance = ca.sqrt((x_pos - OBS_X)**2 + \
+                                       (y_pos - OBS_Y)**2)
 
-            self.g = ca.vertcat(self.g, obst_constraint)
+            obs_constraint = -obs_distance + (rob_diam/2) + (obs_diam/2)
+            # obs_constraint = 0
+
+            self.g = ca.vertcat(self.g, obs_constraint) 
+            
+            #self.cost_fn = self.cost_fn + (obs_distance)
 
             
     def init_solver(self):
@@ -214,7 +231,7 @@ class Optimization():
 
         opts = {
             'ipopt': {
-                'max_iter': 2000,
+                'max_iter': 4000,
                 'print_level': 1,
                 'acceptable_tol': 1e-8,
                 'acceptable_obj_change_tol': 1e-6
@@ -226,6 +243,10 @@ class Optimization():
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
         
     
+    def init_goals(self, start, goal):
+        self.state_init = ca.DM(start)        # initial state
+        self.state_target = ca.DM(goal)  # target state
+        
     def solve_mpc(self,start, goal, t0, mpc_iter, solve_once=False):
         """main loop to solve for MPC"""
         #Packing the solution into a single row vector
@@ -249,15 +270,15 @@ class Optimization():
             print("t0", self.t0)
             #initial time reference
             t1 = time()
-            
+            # self.compute_cost()
+
             ## the arguments are what I care about
             """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
             lbg =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))  # constraints lower bound
             lbg[self.n_states*N+n_states:] = -ca.inf # -infinity to minimum marign value for obs avoidance
             
             ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))  # constraints upper bound
-            ubg[self.n_states*N+n_states:] = -rob_diam - obs_diam #adding inequality constraints at the end
-
+            ubg[self.n_states*N+n_states:] = 0 #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end
 
             args = {
                 'lbg': lbg,  # constraints lower bound
@@ -287,6 +308,9 @@ class Optimization():
                 ubg=args['ubg'],
                 p=args['p']
             )
+            
+            #move obstacle
+            # OBX_X = OBS_X + random()
 
             #unpack as a matrix
             self.u = ca.reshape(sol['x'][self.n_states * (self.N + 1):], 
@@ -309,7 +333,6 @@ class Optimization():
             
             #won't need this for real time system
             solution_list.append((self.u, self.X0))
-            
             
             # xx ...
             print(mpc_iter)
@@ -379,6 +402,7 @@ if __name__ == '__main__':
     #### Optimization Process ######### 
     optimizer = Optimization(toy_car, step_horizon, N)
     optimizer.init_decision_variables()
+    optimizer.init_goals(start,end)
     optimizer.compute_cost()
     optimizer.init_solver()
     optimizer.define_bound_constraints()
@@ -391,6 +415,7 @@ if __name__ == '__main__':
     #%% Visualize results 
     import matplotlib.pyplot as plt
     from matplotlib import animation
+    import seaborn as sns
 
     plt.close('all')
     
@@ -440,7 +465,7 @@ if __name__ == '__main__':
                                         obs_diam/2 ,
                                         fill = True )
 
-    ax1.add_patch(obstacle)
+    # ax1.add_patch(obstacle)
     
     # fig2, ax2 = plt.subplots(figsize=(8,8))
     # ax2.plot(times[1:], np.rad2deg(actual_psi))
@@ -451,6 +476,89 @@ if __name__ == '__main__':
     # horizon_pos_array = np.transpose(
     #     np.array((horizon_x, horizon_y, horizon_psi), dtype=float))
     
-    #%% Animate 
+
+    """format position"""
+    actual_pos_array = np.array([actual_x, actual_y])
+    horizon_pos_array = np.array([overall_horizon_x, overall_horizon_y])
+    
+    buffer = 2
+    min_x = min(actual_x)
+    max_x = max(actual_x)
+    
+    min_y = min(actual_y)
+    max_y = max(actual_y)
+    
+    TIME_SPAN = 5
+    position_data = [actual_pos_array, horizon_pos_array]
+    labels = ['Actual Position', 'Horizon']
+
+
+    fig2, ax2 = plt.subplots(figsize=(6, 6))
+    
+    ax2.add_patch(obstacle)
+    
+    #ax2.plot(OBS_X, OBS_Y, 'o', markersize=35*obs_diam, label='obstacle')
+    # ax2.plot(actual_x, actual_y)
+    
+    ax2.set_xlim([min_x-buffer, max_x+buffer])
+    ax2.set_ylim([min_y-buffer, max_y+buffer])
+    
+    ax2.plot(x_init, y_init, 'x', markersize=10, label='start')
+    ax2.plot(x_target, y_target, 'x', markersize=10,label='end')
+    
+    lines = [ax2.plot([], [], [])[0] for _ in range(len(position_data))] 
+    # line2, = ax2.plot(horizon_pos_array[0,0], 
+    #                   horizon_pos_array[1,0],
+    #                   horizon_pos_array[2,0])
+    
+    color_list = sns.color_palette("hls", len(position_data))
+    # ax.scatter(5,5,1, s=100, c='g')
+    for i, line in enumerate(lines):
+        line._color = color_list[i]
+        #line._color = color_map[uav_list[i]]
+        line._linewidth = 2.0
+        line.set_label(labels[i])
+        
+    patches = lines
+
+    def init():
+        #lines = [ax2.plot(uav[0, 0:1], uav[1, 0:1], uav[2, 0:1])[0] for uav in position_data]
+        lines = [ax2.plot(uav[0, 0:1], uav[1, 0:1])[0] for uav in position_data]
+
+        #scatters = [ax.scatter3D(uav[0, 0:1], uav[1, 0:1], uav[2, 0:1])[0] for uav in data]
+
+        return patches
+    
+    def update_lines(num, dataLines, lines):
+        count = 0 
+        for i, (line, data) in enumerate(zip(lines, dataLines)):
+            #NOTE: there is no .set_data() for 3 dim data...
+            time_span = TIME_SPAN
+            if num < time_span:
+                interval = 0
+            else:
+                interval = num - time_span
+                
+            if i == 1:
+                line.set_data(data[:2, N*num:N*num+N])
+                # line.set_3d_properties(data[2, N*num:N*num+N])
+            else:
+                
+                line.set_data(data[:2, interval:num])
+                # line.set_3d_properties(data[2, interval:num])
+            
+            count +=1
+        
+        return patches
+    
+    # color_list = sns.color_palette("hls", num_columns)
+    # patches = set_lines(lines, color_list, column_names)
+
+    ax2.legend()
+    line_ani = animation.FuncAnimation(fig2, update_lines, fargs=(position_data, patches), init_func=init,
+                                        interval=5.0, blit=True, repeat=True, frames=position_data[0].shape[1]+1)
+    
+    
+
  
     
