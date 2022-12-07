@@ -2,26 +2,28 @@ from time import time
 import casadi as ca
 import numpy as np
 
-step_horizon = 0.1 #time between steps in seconds 
+step_horizon = 0.05 #time between steps in seconds 
 N = 10 #number of look ahead steps
 
-#intial parameters 
+#intial parameters
+X_BOUND = 20
+Y_BOUND = 20  
 x_init = 0 
 y_init = 0 
 psi_init = 0
 
 #target parameters
-x_target = 50
-y_target = 50
-psi_target = np.deg2rad(0)
+x_target = 2
+y_target = 2
+psi_target = np.deg2rad(45)
 
-v_max = 10
+v_max = 1
 v_min = -v_max
 
 psi_rate_max = np.deg2rad(30)
 psi_rate_min = - psi_rate_max
 
-sim_time = 50      # simulation time seconds
+sim_time = 10      # simulation time seconds
 
 
 class ToyCar():
@@ -137,6 +139,12 @@ class Optimization():
         REFACTOR THIS
         """
         #right now still coupled with state space system, 0 means velcoity 1 is psi rate
+        # self.lbx['X'][0,:] = -1
+        # self.ubx['X'][0,:] = X_BOUND
+        
+        # self.lbx['X'][1,:] = -1
+        # self.ubx['X'][1,:] = Y_BOUND
+
         self.lbx['U'][0,:] = v_min
         self.ubx['U'][0,:] = v_max
 
@@ -151,16 +159,26 @@ class Optimization():
         R = self.R
         n_states = self.n_states
         
+        """
+        going to add a stationary object and see what happens
+        I need to abstract this someway to insert this into the MPC 
+        """
+        rob_diam = 0.25
+        obs_diam = 0.5
+        self.obstacle = [2.0, 2.0]
+        self.obst_constraint = []
+        
         for k in range(N):
             states = self.X[:, k]
             controls = self.U[:, k]
             state_next = self.X[:, k+1]
-            
+
             #penalize states and controls for now, can add other stuff too
             self.cost_fn = self.cost_fn \
                 + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
-                + controls.T @ R @ controls
-            
+                + controls.T @ R @ controls 
+
+            # self.cost_fn =             
             ##Runge Kutta
             k1 = self.f(states, controls)
             k2 = self.f(states + self.dt_val/2*k1, controls)
@@ -168,7 +186,21 @@ class Optimization():
             k4 = self.f(states + self.dt_val * k3, controls)
             state_next_RK4 = states + (self.dt_val / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
             self.g = ca.vertcat(self.g, state_next - state_next_RK4) #dynamic constraints
+            # self.g = ca.vertcat(self.g,-ca.sqrt((x_pos - self.obstacle[0])** 2 + \
+            #     (y_pos- self.obstacle[1]) ** 2) + (rob_diam / 2 + obs_diam / 2))
 
+            #penalize obtacle distance
+            x_pos = self.X[0,k]
+            y_pos = self.X[1,k]
+            obst_constraint = -ca.sqrt((x_pos - self.obstacle[0])**2 + \
+                                       (y_pos - self.obstacle[1])**2) + \
+                                        (rob_diam/2) + (obs_diam/2)
+
+            # print("obstacle constraint: " , obst_constraint)
+            # self.obst_constraint.append(obst_constraint)
+            self.g = ca.vertcat(self.g, obst_constraint)
+            
+            
     def init_solver(self):
         """init the NLP solver utilizing IPOPT this is where
         you can set up your options for the solver"""
@@ -187,19 +219,19 @@ class Optimization():
         opts = {
             'ipopt': {
                 'max_iter': 2000,
-                'print_level': 0,
+                'print_level': 1,
                 'acceptable_tol': 1e-8,
                 'acceptable_obj_change_tol': 1e-6
             },
             # 'jit':True,
-            'print_time': 0
+            'print_time': 1
         }
         
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
-
-
-    def solve_mpc(self,start, goal, t0, mpc_iter):
-        """main loop to solve for MPC"""
+        
+        
+    def solve_trajectory(self,start, goal):
+        """solve just the traectory"""
         #Packing the solution into a single row vector
         main_loop = time()  # return time in sec
         n_states = self.n_states
@@ -217,16 +249,92 @@ class Optimization():
         
         time_history = [self.t0]
 
+        t1 = time()
+
+        lbg =  - ca.DM.inf((self.n_states*(self.N+1)+self.N, 1))  # constraints lower bound
+        ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))  # constraints lower bound
+
+        ## the arguments are what I care about
+        args = {
+            'lbg': -ca.DM.inf((self.n_states*(self.N+1)+self.N, 1)),  # constraints lower bound
+            'ubg': ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1)),  # constraints upper bound
+            'lbx': self.pack_variables_fn(**self.lbx)['flat'],
+            'ubx': self.pack_variables_fn(**self.ubx)['flat'],
+        }
+
+        #this is where you can update the target location
+        args['p'] = ca.vertcat(
+            self.state_init,    # current state
+            self.state_target   # target state
+        )
+        
+        # optimization variable current state
+        args['x0'] = ca.vertcat(
+            ca.reshape(self.X0, n_states*(self.N+1), 1),
+            ca.reshape(self.u0, n_controls*self.N, 1)
+        )
+
+        #this is where we solve
+        sol = self.solver(
+            x0=args['x0'],
+            lbx=args['lbx'],
+            ubx=args['ubx'],
+            lbg=args['lbg'],
+            ubg=args['ubg'],
+            p=args['p']
+        )
+
+        main_loop_time = time()
+        ss_error = ca.norm_2(self.state_init - self.state_target)
+    
+        #unpack as a matrix
+        self.u = ca.reshape(sol['x'][self.n_states * (self.N + 1):], 
+                            self.n_controls, self.N)
+        
+        self.X0 = ca.reshape(sol['x'][: n_states * (self.N+1)], 
+                                self.n_states, self.N+1)
+    
+        solution_list.append((self.u, self.X0))
+
+        print('\n\n')
+        print('Total time: ', main_loop_time - main_loop)
+        print('avg iteration time: ', np.array(times).mean() * 1000, 'ms')
+        print('final error: ', ss_error)
+         
+        return time_history, solution_list
+
+    def solve_mpc(self,start, goal, t0, mpc_iter):
+        """main loop to solve for MPC"""
+        #Packing the solution into a single row vector
+        main_loop = time()  # return time in sec
+        n_states = self.n_states
+        n_controls = self.n_controls
+        solution_list = []
+        
+        self.state_init = ca.DM(start)        # initial state
+        self.state_target = ca.DM(goal)  # target state
+        self.t0 = t0
+        self.u0 = ca.DM.zeros((self.n_controls, self.N))  # initial control
+        self.X0 = ca.repmat(self.state_init, 1, self.N+1)         # initial state full
+        self.mpc_iter = mpc_iter
+        times = np.array([[0]]) 
+        
+        time_history = [self.t0]
+        print("solving")
         while (ca.norm_2(self.state_init - self.state_target) > 1e-1) \
             and (self.t0 < sim_time):
             print("t0", self.t0)
             #initial time reference
             t1 = time()
-
             ## the arguments are what I care about
+            """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
+
+            lbg =  - ca.DM.inf((self.n_states*(self.N+1)+10, 1))  # constraints lower bound
+            ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+10, 1))  # constraints lower bound
+
             args = {
-                'lbg': ca.DM.zeros((self.n_states*(self.N+1), 1)),  # constraints lower bound
-                'ubg': ca.DM.zeros((self.n_states*(self.N+1), 1)),  # constraints upper bound
+                'lbg': lbg,  # constraints lower bound
+                'ubg': ubg,  # constraints upper bound
                 'lbx': self.pack_variables_fn(**self.lbx)['flat'],
                 'ubx': self.pack_variables_fn(**self.ubx)['flat'],
             }
@@ -344,7 +452,8 @@ if __name__ == '__main__':
 
 
     #### Find soluton time
-    times, solution_list = optimizer.solve_mpc(start, end, t0, mpc_iter)
+    #times, solution_list = optimizer.solve_mpc(start, end, t0, mpc_iter)
+    times, solution_list = optimizer.solve_trajectory(start,end)
 
     #%% Visualize results 
     import matplotlib.pyplot as plt
@@ -385,70 +494,15 @@ if __name__ == '__main__':
     ax1.plot(actual_x, actual_y)
     ax1.plot(x_target, y_target, 'x')
     
-    fig2, ax2 = plt.subplots(figsize=(8,8))
-    ax2.plot(times[1:], np.rad2deg(actual_psi))
+    # fig2, ax2 = plt.subplots(figsize=(8,8))
+    # ax2.plot(times[1:], np.rad2deg(actual_psi))
     
-    actual_pos_array = np.transpose(
-        np.array((actual_x, actual_y, actual_psi), dtype=float))
+    # actual_pos_array = np.transpose(
+    #     np.array((actual_x, actual_y, actual_psi), dtype=float))
     
-    horizon_pos_array = np.transpose(
-        np.array((horizon_x, horizon_y, horizon_psi), dtype=float))
+    # horizon_pos_array = np.transpose(
+    #     np.array((horizon_x, horizon_y, horizon_psi), dtype=float))
     
     #%% Animate 
-    def init():
-        
-        return path, horizon
-
-    def animate(i):
-        # get variables
-        x = cat_states[0, 0, i]
-        y = cat_states[1, 0, i]
-        th = cat_states[2, 0, i]
-
-        # update path
-        if i == 0:
-            path.set_data(np.array([]), np.array([]))
-        x_new = np.hstack((path.get_xdata(), x))
-        y_new = np.hstack((path.get_ydata(), y))
-        path.set_data(x_new, y_new)
-
-        # update horizon
-        x_new = cat_states[0, :, i]
-        y_new = cat_states[1, :, i]
-        horizon.set_data(x_new, y_new)
-
-        # update current_state
-        current_state.set_xy(create_triangle([x, y, th], update=True))
-
-        # update target_state
-        # xy = target_state.get_xy()
-        # target_state.set_xy(xy)            
-
-        return path, horizon
-
-    
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.set_xlim(left = 0, right = 50)
-    ax.set_ylim(bottom = 0, top = 50)
-    
-    # create lines:
-    #   path
-    path, = ax.plot([], [], 'k', linewidth=2)
-    #   horizon
-    horizon, = ax.plot([], [], 'x-g', alpha=0.5)
-    
-    sim = animation.FuncAnimation(
-        fig=fig,
-        func=animate,
-        init_func=init,
-        frames=len(times),
-        interval=step_horizon*100,
-        blit=True,
-        repeat=True
-    )
-    plt.show()    
-
-    
  
-    
     

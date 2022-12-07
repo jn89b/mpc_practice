@@ -487,8 +487,8 @@ if __name__=='__main__':
     z_init = 1
     psi_init = 0
 
-    x_target = 10
-    y_target = 10
+    x_target = 3
+    y_target = 3
     z_target = 2
     psi_target = np.deg2rad(45)
 

@@ -126,12 +126,11 @@ if __name__=='__main__':
     Optimization Problem Formulation
     
     """
+    #horizon time and dt value, can make basis on how fast I'm localizing
+    N = 30
+    dt_val = 0.1
     
     opti = ca.Opti()
-    
-    #horizon time and dt value, can make basis on how fast I'm localizing
-    N = 50
-    dt_val = 0.1
     
     #decision variables to send to NLP
     X = opti.variable(flat_quad.states.size()[0], N+1) #allow one more iteration for final
@@ -147,10 +146,10 @@ if __name__=='__main__':
     r = X[7,:] #yaw rate
     
     U = opti.variable(flat_quad.controls.size()[0], N)
-    u0 = U[0]
-    u1 = U[1]
-    u2 = U[2]
-    u3 = U[3]
+    u0 = U[0,:]
+    u1 = U[1,:]
+    u2 = U[2,:]
+    u3 = U[3,:]
     
     #Initiate State parameter
     x0 = opti.parameter(flat_quad.states.size()[0])
@@ -181,7 +180,7 @@ if __name__=='__main__':
     goal_x = 5.0
     goal_y = 5.0
     goal_z = 2.0
-    goal_psi = np.deg2rad(45)
+    goal_psi = np.deg2rad(60)
 
     #obstacle constraints
     obstacle_x = 1.0

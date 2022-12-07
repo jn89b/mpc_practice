@@ -31,8 +31,8 @@ r_max = np.deg2rad(45)
 phi_min = -np.deg2rad(45)
 phi_max = np.deg2rad(45)
 
-v_min = -10 #m/s
-v_max = 10.0 #m/s
+v_min = -30#this is related to stall speed
+v_max = 30#m/s
 
 v_index = 0 
 p_index = 1
@@ -365,7 +365,7 @@ if __name__ == '__main__':
     #### Optimization Process ######### 
     t0 = 0
     step_horizon = 0.01
-    N = 100
+    N = 1000
     optimizer = Optimization(airplane, step_horizon, N)
     optimizer.init_decision_variables()
     optimizer.compute_cost()
@@ -384,7 +384,7 @@ if __name__ == '__main__':
     plt.close('all')
     
     t_sim = np.arange(t0, N*step_horizon+step_horizon, step_horizon)
-    ref_cmd = 45 * np.ones(len(t_sim))
+    ref_cmd = np.rad2deg(phi_max) * np.ones(len(t_sim))
     #for control_info each index is length [control x N]
     #for state_info each index is length [state x N+1]
     control_info = [control[0] for control in solution_list]
@@ -421,5 +421,15 @@ if __name__ == '__main__':
     fig.legend()
     axs[0].set_ylabel('Deg/s')
     axs[1].set_ylabel('Deg/s')
+    
+    
+    fig4, ax4 = plt.subplots(figsize=(8,8))
+    
+    ax4.plot(t_sim, state[0,:], label='v (M/s)')
+    ax4.plot(t_sim, np.rad2deg(state[1,:]), label='p (Degrees/s)')
+    ax4.plot(t_sim, np.rad2deg(state[2,:]), label='r (Degrees/s)')
+
+    ax4.set_xlabel('Time (secs)')
+    fig4.legend()
 
  

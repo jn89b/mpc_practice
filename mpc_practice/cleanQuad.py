@@ -313,9 +313,6 @@ if __name__=='__main__':
     #renew the intial x0 
     optimizer.set_init_x(flat_quad, current_state)
     
-
-
-
 #%% 
 ################################################################
 # Visualize Results
