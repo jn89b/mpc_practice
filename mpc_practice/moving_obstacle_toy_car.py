@@ -4,7 +4,7 @@ import numpy as np
 import random 
 
 step_horizon = 0.1 #time between steps in seconds 
-N = 45 #number of look ahead steps
+N = 25 #number of look ahead steps
 
 #intial parameters
 X_BOUND = 20
@@ -19,7 +19,7 @@ OBS_X = 2.5
 OBS_Y = 2.5
 
 rob_diam = 0.3
-obs_diam = 1.5
+obs_diam = 1.0
 
 
 #target parameters
@@ -33,7 +33,7 @@ v_min = 0
 psi_rate_max = np.deg2rad(60)
 psi_rate_min = - psi_rate_max
 
-sim_time = 15      # simulation time seconds
+sim_time = 10      # simulation time seconds
 
 
 
@@ -126,6 +126,11 @@ class Optimization():
         
         #column vector for storing initial and target locations
         self.P = ca.SX.sym('P', self.n_states + self.n_states)
+
+        self.OPT_variables = ca.vertcat(
+            self.X.reshape((-1, 1)),   # Example: 3x11 ---> 33x1 where 3=states, 11=N+1
+            self.U.reshape((-1, 1))
+        )
         
 
     def define_bound_constraints(self):
@@ -156,7 +161,7 @@ class Optimization():
         self.lbx['U'][1,:] = psi_rate_min
         self.ubx['U'][1,:] = psi_rate_max
 
-    def compute_cost(self):
+    def compute_cost(self, obstacle_x, obstacle_y):
         """this is where we do integration methods to find cost"""
         #tired of writing self
         #dynamic constraints 
@@ -172,19 +177,17 @@ class Optimization():
         going to add a stationary object and see what happens
         I need to abstract this someway to insert this into the MPC 
         """
+        print("obstacle position: ",obstacle_x, obstacle_y)
 
         for k in range(N):
             states = self.X[:, k]
             controls = self.U[:, k]
             state_next = self.X[:, k+1]
             
-            e = self.X[:,k] - self.state_target 
-            self.cost_fn = self.cost_fn + ca.sumsqr(e) + ca.sumsqr(controls)
-
-            # #penalize states and controls for now, can add other stuff too
-            # self.cost_fn = self.cost_fn \
-            #     + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
-            #     + controls.T @ R @ controls                 
+            #penalize states and controls for now, can add other stuff too
+            self.cost_fn = self.cost_fn \
+                + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
+                + controls.T @ R @ controls                 
 
             # self.cost_fn =             
             ##Runge Kutta
@@ -199,15 +202,15 @@ class Optimization():
             #penalize obtacle distance
             x_pos = self.X[0,k]
             y_pos = self.X[1,k]
-            obst_constraint = -ca.sqrt((x_pos - OBS_X)**2 + \
-                                       (y_pos - OBS_Y)**2 + \
+            obst_constraint = -ca.sqrt((x_pos - obstacle_x)**2 + \
+                                       (y_pos - obstacle_y)**2 + \
                                         (rob_diam) + (obs_diam/2))
             
-            obs_distance = ca.sqrt((x_pos - OBS_X)**2 + \
-                                       (y_pos - OBS_Y)**2)
+            obs_distance = ca.sqrt((x_pos - obstacle_x)**2 + \
+                                       (y_pos - obstacle_y)**2)
+            
 
             obs_constraint = -obs_distance + (rob_diam/2) + (obs_diam/2)
-            # obs_constraint = 0
 
             self.g = ca.vertcat(self.g, obs_constraint) 
             
@@ -217,10 +220,7 @@ class Optimization():
     def init_solver(self):
         """init the NLP solver utilizing IPOPT this is where
         you can set up your options for the solver"""
-        self.OPT_variables = ca.vertcat(
-            self.X.reshape((-1, 1)),   # Example: 3x11 ---> 33x1 where 3=states, 11=N+1
-            self.U.reshape((-1, 1))
-        )
+
         
         nlp_prob = {
             'f': self.cost_fn,
@@ -237,7 +237,7 @@ class Optimization():
                 'acceptable_obj_change_tol': 1e-6
             },
             # 'jit':True,
-            'print_time': 1
+            'print_time': 0
         }
         
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
@@ -262,15 +262,28 @@ class Optimization():
         self.X0 = ca.repmat(self.state_init, 1, self.N+1)         # initial state full
         self.mpc_iter = mpc_iter
         times = np.array([[0]]) 
-        
+
+        """refactor this """
+        obstacle_history = []
+        obs_velocity = 0.2 #m/s
+
         time_history = [self.t0]
+        
+        origin_obs_x = OBS_X
+        origin_obs_y = OBS_Y
+        
         print("solving")
         while (ca.norm_2(self.state_init - self.state_target) > 1e-1) \
             and (self.t0 < sim_time):
             print("t0", self.t0)
             #initial time reference
             t1 = time()
-            # self.compute_cost()
+            
+            
+            origin_obs_x = origin_obs_x + self.dt_val * obs_velocity
+            origin_obs_y = origin_obs_y #+ self.dt_val * obs_velocity
+            self.init_solver()
+            self.compute_cost(origin_obs_x, origin_obs_y)
 
             ## the arguments are what I care about
             """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
@@ -309,9 +322,8 @@ class Optimization():
                 p=args['p']
             )
             
-            #move obstacle
-            # OBX_X = OBS_X + random()
-
+            obstacle_history.append((origin_obs_x, origin_obs_x))        
+        
             #unpack as a matrix
             self.u = ca.reshape(sol['x'][self.n_states * (self.N + 1):], 
                                 self.n_controls, self.N)
@@ -347,7 +359,7 @@ class Optimization():
 
             #this is if we just one do to compute one trajectory
             if solve_once == True and mpc_iter == 10:
-                return time_history, solution_list
+                return time_history, solution_list, obstacle_history
 
 
         main_loop_time = time()
@@ -358,7 +370,7 @@ class Optimization():
         print('avg iteration time: ', np.array(times).mean() * 1000, 'ms')
         print('final error: ', ss_error)
          
-        return time_history, solution_list
+        return time_history, solution_list, obstacle_history
 
 def shift_timestep(step_horizon, t_init, state_init, u, f):
     """
@@ -403,13 +415,13 @@ if __name__ == '__main__':
     optimizer = Optimization(toy_car, step_horizon, N)
     optimizer.init_decision_variables()
     optimizer.init_goals(start,end)
-    optimizer.compute_cost()
+    optimizer.compute_cost(OBS_X, OBS_Y)
     optimizer.init_solver()
     optimizer.define_bound_constraints()
 
 
     #### Find soluton time
-    times, solution_list = optimizer.solve_mpc(start, end, t0, mpc_iter, False)
+    times, solution_list, obs_history = optimizer.solve_mpc(start, end, t0, mpc_iter, False)
     # times, solution_list = optimizer.solve_trajectory(start,end, t0)
 
     #%% Visualize results 
