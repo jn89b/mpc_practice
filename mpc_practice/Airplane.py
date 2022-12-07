@@ -60,7 +60,7 @@ class AirplaneModel():
     def set_state_space(self):
         """set state space """
         self.a1 = ca.horzcat(
-          -0.0404, 0.0618, 0.0501, -0.0000, -0.0005, 0.0000  0.0
+          -0.0404, 0.0618, 0.0501, -0.0000, -0.0005, 0.0000,  0.0
         )
         
         self.a2 = ca.horzcat(

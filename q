@@ -1,0 +1,29 @@
+[33mcommit f14c06fad9f6e614af2c2884e239ff19ecba5917[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Justin Nguyen <jnguyenblue2804@gmail.com>
+Date:   Tue Dec 6 18:12:00 2022 -0600
+
+    added easier implementation for opti toy car
+
+[33mcommit 39aa64135f3f24c306da1145085b61228e3d1ea3[m
+Author: Justin Nguyen <jnguyenblue2804@gmail.com>
+Date:   Mon Dec 5 19:00:22 2022 -0600
+
+    added lateral plane dynamics
+
+[33mcommit d39a4f04382515e0a7667745e4936fea9489ba2e[m
+Author: Justin Nguyen <jnguyenblue2804@gmail.com>
+Date:   Mon Dec 5 15:02:20 2022 -0600
+
+    added mpc
+
+[33mcommit 13cd09d5c3f9c76e5c2ee049167e0604bb8f8a43[m
+Author: Justin Nguyen <jnguyenblue2804@gmail.com>
+Date:   Sat Dec 3 14:31:55 2022 -0600
+
+    added optimziation class
+
+[33mcommit 34e729c21bee96e06e56733aeb1dd1f4a5a17c32[m
+Author: Justin Nguyen <jnguyenblue2804@gmail.com>
+Date:   Sat Dec 3 13:09:09 2022 -0600
+
+    init commit

@@ -3,7 +3,7 @@ import casadi as ca
 import numpy as np
 
 step_horizon = 0.05 #time between steps in seconds 
-N = 10 #number of look ahead steps
+N = 50 #number of look ahead steps
 
 #intial parameters
 X_BOUND = 20
@@ -12,18 +12,27 @@ x_init = 0
 y_init = 0 
 psi_init = 0
 
+
+## GlOBAL OBSTACLE
+OBS_X = 1.5
+OBS_Y = 1.5
+
+rob_diam = 0.25
+obs_diam = 1.0
+
+
 #target parameters
-x_target = 2
-y_target = 2
+x_target = 5
+y_target = 5
 psi_target = np.deg2rad(45)
 
-v_max = 1
-v_min = -v_max
+v_max = 5
+v_min = -5
 
-psi_rate_max = np.deg2rad(30)
+psi_rate_max = np.deg2rad(45)
 psi_rate_min = - psi_rate_max
 
-sim_time = 10      # simulation time seconds
+sim_time = 15      # simulation time seconds
 
 
 class ToyCar():
@@ -100,7 +109,7 @@ class Optimization():
         self.N = N
 
         """this needs to be changed, let user define this"""
-        self.Q = ca.diagcat(20.0, 20.0, 5.0) # weights for states
+        self.Q = ca.diagcat(1.0, 1.0,1.0) # weights for states
         self.R = ca.diagcat(1.0, 1.0) # weights for controls
         
         #initialize cost function as 0
@@ -138,12 +147,6 @@ class Optimization():
         """
         REFACTOR THIS
         """
-        #right now still coupled with state space system, 0 means velcoity 1 is psi rate
-        # self.lbx['X'][0,:] = -1
-        # self.ubx['X'][0,:] = X_BOUND
-        
-        # self.lbx['X'][1,:] = -1
-        # self.ubx['X'][1,:] = Y_BOUND
 
         self.lbx['U'][0,:] = v_min
         self.ubx['U'][0,:] = v_max
@@ -163,11 +166,7 @@ class Optimization():
         going to add a stationary object and see what happens
         I need to abstract this someway to insert this into the MPC 
         """
-        rob_diam = 0.25
-        obs_diam = 0.5
-        self.obstacle = [2.0, 2.0]
-        self.obst_constraint = []
-        
+
         for k in range(N):
             states = self.X[:, k]
             controls = self.U[:, k]
@@ -186,20 +185,17 @@ class Optimization():
             k4 = self.f(states + self.dt_val * k3, controls)
             state_next_RK4 = states + (self.dt_val / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
             self.g = ca.vertcat(self.g, state_next - state_next_RK4) #dynamic constraints
-            # self.g = ca.vertcat(self.g,-ca.sqrt((x_pos - self.obstacle[0])** 2 + \
-            #     (y_pos- self.obstacle[1]) ** 2) + (rob_diam / 2 + obs_diam / 2))
 
+        for k in range(N):
             #penalize obtacle distance
             x_pos = self.X[0,k]
             y_pos = self.X[1,k]
-            obst_constraint = -ca.sqrt((x_pos - self.obstacle[0])**2 + \
-                                       (y_pos - self.obstacle[1])**2) + \
-                                        (rob_diam/2) + (obs_diam/2)
+            obst_constraint = -ca.sqrt((x_pos - OBS_X)**2 + \
+                                       (y_pos - OBS_Y)**2 + \
+                                        (rob_diam) + (obs_diam/2))
 
-            # print("obstacle constraint: " , obst_constraint)
-            # self.obst_constraint.append(obst_constraint)
             self.g = ca.vertcat(self.g, obst_constraint)
-            
+
             
     def init_solver(self):
         """init the NLP solver utilizing IPOPT this is where
@@ -229,81 +225,8 @@ class Optimization():
         
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
         
-        
-    def solve_trajectory(self,start, goal):
-        """solve just the traectory"""
-        #Packing the solution into a single row vector
-        main_loop = time()  # return time in sec
-        n_states = self.n_states
-        n_controls = self.n_controls
-        solution_list = []
-        
-
-        self.state_init = ca.DM(start)        # initial state
-        self.state_target = ca.DM(goal)  # target state
-        self.t0 = t0
-        self.u0 = ca.DM.zeros((self.n_controls, self.N))  # initial control
-        self.X0 = ca.repmat(self.state_init, 1, self.N+1)         # initial state full
-        self.mpc_iter = mpc_iter
-        times = np.array([[0]]) 
-        
-        time_history = [self.t0]
-
-        t1 = time()
-
-        lbg =  - ca.DM.inf((self.n_states*(self.N+1)+self.N, 1))  # constraints lower bound
-        ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))  # constraints lower bound
-
-        ## the arguments are what I care about
-        args = {
-            'lbg': -ca.DM.inf((self.n_states*(self.N+1)+self.N, 1)),  # constraints lower bound
-            'ubg': ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1)),  # constraints upper bound
-            'lbx': self.pack_variables_fn(**self.lbx)['flat'],
-            'ubx': self.pack_variables_fn(**self.ubx)['flat'],
-        }
-
-        #this is where you can update the target location
-        args['p'] = ca.vertcat(
-            self.state_init,    # current state
-            self.state_target   # target state
-        )
-        
-        # optimization variable current state
-        args['x0'] = ca.vertcat(
-            ca.reshape(self.X0, n_states*(self.N+1), 1),
-            ca.reshape(self.u0, n_controls*self.N, 1)
-        )
-
-        #this is where we solve
-        sol = self.solver(
-            x0=args['x0'],
-            lbx=args['lbx'],
-            ubx=args['ubx'],
-            lbg=args['lbg'],
-            ubg=args['ubg'],
-            p=args['p']
-        )
-
-        main_loop_time = time()
-        ss_error = ca.norm_2(self.state_init - self.state_target)
     
-        #unpack as a matrix
-        self.u = ca.reshape(sol['x'][self.n_states * (self.N + 1):], 
-                            self.n_controls, self.N)
-        
-        self.X0 = ca.reshape(sol['x'][: n_states * (self.N+1)], 
-                                self.n_states, self.N+1)
-    
-        solution_list.append((self.u, self.X0))
-
-        print('\n\n')
-        print('Total time: ', main_loop_time - main_loop)
-        print('avg iteration time: ', np.array(times).mean() * 1000, 'ms')
-        print('final error: ', ss_error)
-         
-        return time_history, solution_list
-
-    def solve_mpc(self,start, goal, t0, mpc_iter):
+    def solve_mpc(self,start, goal, t0, mpc_iter, solve_once=False):
         """main loop to solve for MPC"""
         #Packing the solution into a single row vector
         main_loop = time()  # return time in sec
@@ -326,11 +249,15 @@ class Optimization():
             print("t0", self.t0)
             #initial time reference
             t1 = time()
+            
             ## the arguments are what I care about
             """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
+            lbg =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))  # constraints lower bound
+            lbg[self.n_states*N+n_states:] = -ca.inf # -infinity to minimum marign value for obs avoidance
+            
+            ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))  # constraints upper bound
+            ubg[self.n_states*N+n_states:] = -rob_diam - obs_diam #adding inequality constraints at the end
 
-            lbg =  - ca.DM.inf((self.n_states*(self.N+1)+10, 1))  # constraints lower bound
-            ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+10, 1))  # constraints lower bound
 
             args = {
                 'lbg': lbg,  # constraints lower bound
@@ -383,6 +310,7 @@ class Optimization():
             #won't need this for real time system
             solution_list.append((self.u, self.X0))
             
+            
             # xx ...
             print(mpc_iter)
             print(t2-t1)
@@ -393,6 +321,11 @@ class Optimization():
             time_history.append(self.t0)
 
             mpc_iter = mpc_iter + 1
+
+            #this is if we just one do to compute one trajectory
+            if solve_once == True and mpc_iter == 10:
+                return time_history, solution_list
+
 
         main_loop_time = time()
         ss_error = ca.norm_2(self.state_init - self.state_target)
@@ -452,8 +385,8 @@ if __name__ == '__main__':
 
 
     #### Find soluton time
-    #times, solution_list = optimizer.solve_mpc(start, end, t0, mpc_iter)
-    times, solution_list = optimizer.solve_trajectory(start,end)
+    times, solution_list = optimizer.solve_mpc(start, end, t0, mpc_iter, False)
+    # times, solution_list = optimizer.solve_trajectory(start,end, t0)
 
     #%% Visualize results 
     import matplotlib.pyplot as plt
@@ -484,7 +417,16 @@ if __name__ == '__main__':
         horizon_x.append(state[0,1:])
         horizon_y.append(state[1,1:])
         horizon_psi.append(state[2,1:])
+
+    overall_horizon_x = []
+    overall_horizon_y = []
+    overall_horizon_z = []
     
+    for x,y,z in zip(horizon_x, horizon_y, horizon_psi):
+        overall_horizon_x.extend(x)
+        overall_horizon_y.extend(y)        
+        overall_horizon_z.extend(z)
+
     #actual_vel = [np.array(control[0,0]) for control in control_info]
     #actual_psi = [np.array(control[1,0]) for control in control_info]
     
@@ -493,6 +435,12 @@ if __name__ == '__main__':
     fig1, ax1 = plt.subplots(figsize=(8,8))
     ax1.plot(actual_x, actual_y)
     ax1.plot(x_target, y_target, 'x')
+    
+    obstacle = plt.Circle( (OBS_X, OBS_Y ),
+                                        obs_diam/2 ,
+                                        fill = True )
+
+    ax1.add_patch(obstacle)
     
     # fig2, ax2 = plt.subplots(figsize=(8,8))
     # ax2.plot(times[1:], np.rad2deg(actual_psi))
