@@ -93,6 +93,7 @@ class LateralPlane():
         
         self.da = ca.SX.sym('da')
         self.dr = ca.SX.sym('dr')
+        
         self.controls = ca.vertcat(
             self.da,
             self.dr 

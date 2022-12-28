@@ -3,8 +3,8 @@ import casadi as ca
 import numpy as np
 import random 
 
-step_horizon = 0.1 #time between steps in seconds 
-N = 25 #number of look ahead steps
+step_horizon = 0.05 #time between steps in seconds 
+N = 10 #number of look ahead steps
 
 #intial parameters
 X_BOUND = 20
@@ -13,27 +13,27 @@ x_init = 0
 y_init = 0 
 psi_init = 0
 
-
-## GlOBAL OBSTACLE
-OBS_X = 2.5
-OBS_Y = 2.5
-
-rob_diam = 0.3
-obs_diam = 1.0
+rob_diam = 1.0
+obs_diam = 30.0
 
 
 #target parameters
-x_target = 4.5
-y_target = 4.5
+x_target = 100
+y_target = 100
 psi_target = np.deg2rad(45)
 
-v_max = 1
-v_min = 0
 
-psi_rate_max = np.deg2rad(60)
+## GlOBAL OBSTACLE
+OBS_X = x_target
+OBS_Y = y_target
+
+v_max = 15
+v_min = 15
+
+psi_rate_max = np.deg2rad(45)
 psi_rate_min = - psi_rate_max
 
-sim_time = 10      # simulation time seconds
+sim_time = 12.5      # simulation time seconds
 
 
 
@@ -111,7 +111,7 @@ class Optimization():
         self.N = N
 
         """this needs to be changed, let user define this"""
-        self.Q = ca.diagcat(100.0, 100.0,1.0) # weights for states
+        self.Q = ca.diagcat(1.0, 1.0,0.0) # weights for states
         self.R = ca.diagcat(1.0, 1.0) # weights for controls
         
         self.Q_matrix = [1, 1, 1]
@@ -214,7 +214,7 @@ class Optimization():
 
             self.g = ca.vertcat(self.g, obs_constraint) 
             
-            #self.cost_fn = self.cost_fn + (obs_distance)
+            # self.cost_fn = self.cost_fn + (obs_distance)
 
             
     def init_solver(self):
@@ -232,18 +232,18 @@ class Optimization():
         opts = {
             'ipopt': {
                 'max_iter': 4000,
-                'print_level': 1,
+                'print_level': 2,
                 'acceptable_tol': 1e-8,
                 'acceptable_obj_change_tol': 1e-6
             },
             # 'jit':True,
-            'print_time': 0
+            'print_time': 1
         }
         
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
         
     
-    def init_goals(self, start, goal):
+    def reinit_start_goal(self, start, goal):
         self.state_init = ca.DM(start)        # initial state
         self.state_target = ca.DM(goal)  # target state
         
@@ -279,7 +279,6 @@ class Optimization():
             #initial time reference
             t1 = time()
             
-            
             origin_obs_x = origin_obs_x + self.dt_val * obs_velocity
             origin_obs_y = origin_obs_y #+ self.dt_val * obs_velocity
             self.init_solver()
@@ -299,7 +298,8 @@ class Optimization():
                 'lbx': self.pack_variables_fn(**self.lbx)['flat'],
                 'ubx': self.pack_variables_fn(**self.ubx)['flat'],
             }
-
+            
+            
             #this is where you can update the target location
             args['p'] = ca.vertcat(
                 self.state_init,    # current state
@@ -321,7 +321,8 @@ class Optimization():
                 ubg=args['ubg'],
                 p=args['p']
             )
-            
+            t2 = time()
+            print(t2 - t1)            
             obstacle_history.append((origin_obs_x, origin_obs_x))        
         
             #unpack as a matrix
@@ -334,8 +335,9 @@ class Optimization():
             #this is where we shift the time step
             self.t0, self.state_init, self.u0 = shift_timestep(
                 self.dt_val, self.t0, self.state_init, self.u, self.f)
-
-            t2 = time()
+            
+            self.target = [goal[0], goal[1], self.state_init[2][0]]
+            print("target",self.target)
 
             #shift forward the X0 vector
             self.X0 = ca.horzcat(
@@ -348,7 +350,6 @@ class Optimization():
             
             # xx ...
             print(mpc_iter)
-            print(t2-t1)
             times = np.vstack((
                 times,
                 t2-t1
@@ -414,7 +415,7 @@ if __name__ == '__main__':
     #### Optimization Process ######### 
     optimizer = Optimization(toy_car, step_horizon, N)
     optimizer.init_decision_variables()
-    optimizer.init_goals(start,end)
+    optimizer.reinit_start_goal(start,end)
     optimizer.compute_cost(OBS_X, OBS_Y)
     optimizer.init_solver()
     optimizer.define_bound_constraints()
@@ -455,6 +456,9 @@ if __name__ == '__main__':
         horizon_y.append(state[1,1:])
         horizon_psi.append(state[2,1:])
 
+
+    #actual_vel = [np.array(control[0,0]) for control in control_info]
+    #actual_psi = [np.array(control[1,0]) for control in control_info]
     overall_horizon_x = []
     overall_horizon_y = []
     overall_horizon_z = []
@@ -462,16 +466,16 @@ if __name__ == '__main__':
     for x,y,z in zip(horizon_x, horizon_y, horizon_psi):
         overall_horizon_x.extend(x)
         overall_horizon_y.extend(y)        
-        overall_horizon_z.extend(z)
-
-    #actual_vel = [np.array(control[0,0]) for control in control_info]
-    #actual_psi = [np.array(control[1,0]) for control in control_info]
     
     horizon_psi_rate = [np.array(control[1,1:]) for control in control_info]
     
     fig1, ax1 = plt.subplots(figsize=(8,8))
     ax1.plot(actual_x, actual_y)
     ax1.plot(x_target, y_target, 'x')
+    
+    fig15, ax15 = plt.subplots(figsize=(8,8))
+    ax15.plot(times[:-1], np.rad2deg(actual_psi))
+    
     
     obstacle = plt.Circle( (OBS_X, OBS_Y ),
                                         obs_diam/2 ,

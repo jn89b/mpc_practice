@@ -127,7 +127,7 @@ if __name__=='__main__':
     
     """
     #horizon time and dt value, can make basis on how fast I'm localizing
-    N = 30
+    N = 15
     dt_val = 0.1
     
     opti = ca.Opti()
@@ -161,24 +161,24 @@ if __name__=='__main__':
             )
 
     #Control Segments for motor
-    MAX_MOTOR = 1
-    MAX_VEL = 20
+    MAX_MOTOR = 15
+    MAX_VEL = 15
     opti.subject_to(opti.bounded(-MAX_MOTOR, u0, MAX_MOTOR))
     opti.subject_to(opti.bounded(-MAX_MOTOR, u1, MAX_MOTOR))
     opti.subject_to(opti.bounded(-MAX_MOTOR, u2, MAX_MOTOR))
     opti.subject_to(opti.bounded(-MAX_MOTOR, u3, MAX_MOTOR))
     
-    opti.subject_to(opti.bounded(-MAX_VEL, vx, MAX_VEL))
-    opti.subject_to(opti.bounded(-MAX_VEL, vy, MAX_VEL))
-    opti.subject_to(opti.bounded(-MAX_VEL, vz, MAX_VEL))
+    opti.subject_to(opti.bounded(0, vx, MAX_VEL))
+    opti.subject_to(opti.bounded(0, vy, MAX_VEL))
+    opti.subject_to(opti.bounded(0, vz, MAX_VEL))
     #opti.subject_to(opti.bounded(-MAX_VEL, vx, MAX_VEL))
     
     #intial and terminal constraints 
     opti.subject_to(X[:,0] == x0)
     
     #cost function
-    goal_x = 5.0
-    goal_y = 5.0
+    goal_x = 25.0
+    goal_y = 0.0
     goal_z = 2.0
     goal_psi = np.deg2rad(60)
 
@@ -209,7 +209,7 @@ if __name__=='__main__':
     weights = [1, 1 ,1]
 
     #cost function to minimize position from goal and obstacle avoidance
-    cost_value = ca.sumsqr(e_x) + ca.sumsqr(e_y) + \
+    cost_value = ca.sumsqr(e_x) + 100*ca.sumsqr(e_y) + \
         ca.sumsqr(e_z) + (weights[-1]* ca.sumsqr(e_psi)) + \
             5000*ca.sumsqr(safe_cost) +  ca.sumsqr(U)
 

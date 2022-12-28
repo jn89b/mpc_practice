@@ -28,11 +28,13 @@ For a plane with a carrying load (lots of DF):
 The Optimization HAS a model it wants to optimize -> Composition
 
 """
-thrust_max = 1
-thrust_min = -1
 
-vel_min = -5
-vel_max = 5
+
+vel_min = -15
+vel_max = 15
+
+thrust_max = vel_max
+thrust_min = vel_min
 
 psi_min = -np.deg2rad(45)
 psi_max = np.deg2rad(45)
@@ -108,14 +110,14 @@ class FlatQuadcopter():
     def set_state_space(self) -> None:
         #this is where I do the dynamics for state space
         self.z_0 = self.vx * ca.cos(self.psi) - self.vy * ca.sin(self.psi)
-        self.z_1 = self.vx * ca.sin(self.psi) + self.vy * ca.cos(self.psi)
+        self.z_1 = self.vy * ca.sin(self.psi) + self.vy * ca.cos(self.psi)
         self.z_2 = self.vz
         self.z_3 = self.psi_dot
         
-        self.x_ddot = -(self.vx + (self.k_x * self.u_0))
-        self.y_ddot = -(self.vy + (self.k_y * self.u_1))
-        self.z_ddot = -(self.vz + (self.k_z * self.u_2))
-        self.psi_ddot = -(self.psi_dot + (self.k_psi * self.u_3))
+        self.x_ddot = (-self.vx + (self.k_x * self.u_0))
+        self.y_ddot = (-self.vy + (self.k_y * self.u_1))
+        self.z_ddot = (-self.vz + (self.k_z * self.u_2))
+        self.psi_ddot = (-self.psi_dot + (self.k_psi * self.u_3))
 
         #renamed it as z because I have an x variable, avoid confusion    
         self.z_dot = ca.vertcat(
@@ -151,10 +153,10 @@ class Optimization():
         self.N = N
         
         """this needs to be changed, let user define this"""
-        self.Q = ca.diagcat(100.0, 
-                            100.0, 
-                            100.0,
-                            100.0,
+        self.Q = ca.diagcat(10.0, 
+                            10.0, 
+                            10.0,
+                            1.0,
                             1.0,
                             1.0,
                             1.0,
@@ -487,9 +489,9 @@ if __name__=='__main__':
     z_init = 1
     psi_init = 0
 
-    x_target = 3
-    y_target = 3
-    z_target = 2
+    x_target = 10
+    y_target = 0
+    z_target = 5
     psi_target = np.deg2rad(45)
 
     start = [x_init, y_init, z_init, psi_init,
@@ -534,6 +536,11 @@ if __name__=='__main__':
     horizon_y = []
     horizon_z = []
     
+    actual_vx = []
+    actual_vy = []
+    actual_vz = []
+    
+
     for state in state_info:
         state = np.asarray(state)
         
@@ -541,11 +548,13 @@ if __name__=='__main__':
         actual_y.append(state[1,0])
         actual_z.append(state[2,0])
         
+        actual_vx.append(state[4,0])
+        actual_vy.append(state[5,0])
+        actual_vz.append(state[6,0])
         
         horizon_x.append(state[0,1:])
         horizon_y.append(state[1,1:])
         horizon_z.append(state[2,1:])
-    
     
     overall_horizon_x = []
     overall_horizon_y = []
@@ -557,6 +566,11 @@ if __name__=='__main__':
         overall_horizon_z.extend(z)
         
 
+    fig5, ax5 = plt.subplots()
+    ax5.plot(times[:-1], actual_vx, label='vx')
+    ax5.plot(times[:-1], actual_vy, label='vy')
+    ax5.plot(times[:-1], actual_vz, label='vz')
+    ax5.legend()
     
     fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(projection='3d'))
     ax.plot(x_target, y_target, z_target, 'x', markersize=20, label='goal position')
