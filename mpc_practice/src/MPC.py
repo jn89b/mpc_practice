@@ -198,7 +198,7 @@ class MPC():
 
             if Config.OBSTACLE_AVOID:
                 """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
-                # constraints lower bound
+                # constraints lower bound added 
                 lbg =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))
                 # -infinity to minimum marign value for obs avoidance  
                 lbg[self.n_states*self.N+n_states:] = -ca.inf 
@@ -218,15 +218,7 @@ class MPC():
                 'lbx': self.pack_variables_fn(**self.lbx)['flat'],
                 'ubx': self.pack_variables_fn(**self.ubx)['flat'],
             }
-
-            args = {
-                'lbg': lbg,  # constraints lower bound
-                'ubg': ubg,  # constraints upper bound
-                'lbx': self.pack_variables_fn(**self.lbx)['flat'],
-                'ubx': self.pack_variables_fn(**self.ubx)['flat'],
-            }
-            
-            
+                        
             #this is where you can update the target location
             args['p'] = ca.vertcat(
                 self.state_init,    # current state

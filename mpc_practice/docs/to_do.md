@@ -1,7 +1,7 @@
 # To Do
 - [X] Get Trajectory Control to work 
-= [X] Get MPC to work
-= [] Modularize code to take in states of system 
+- [X] Get MPC to work
+- [X] Modularize code to take in states of system 
 
 
 ## Get MPC to work
@@ -22,3 +22,8 @@ How the algorithm works
 	- $u$ = set($u_1$)
 	- applyInput($u$)
 ```
+
+### Multiple Obstacles
+- Define input of obstacle layout
+- Override the cost function for calculate obstacles 
+- 
