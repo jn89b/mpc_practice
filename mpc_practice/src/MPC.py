@@ -195,9 +195,6 @@ class MPC():
         mpc_iter = 0
         obstacle_history = []
 
-        print("solve_mpc: start = ", start)
-        print("solve_mpc: goal = ", goal)
-
         if Config.OBSTACLE_AVOID:
             obs_x = Config.OBSTACLE_X
             obs_y = Config.OBSTACLE_Y
