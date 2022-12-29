@@ -43,12 +43,12 @@ OBSTACLE_DIAMETER = 1.0
 OBSTACLE_VX = 0.0
 OBSTACLE_VY = 0.0
 
-X_MAX = 10
-Y_MAX = 10
-X_MIN = 0
-Y_MIN = 0
+X_MAX = 8
+Y_MAX = 7
+X_MIN = 3
+Y_MIN = 2
 
-N_OBSTACLES = 20 # +1 for goal
+N_OBSTACLES = 10 # +1 for goal
 if MULTIPLE_OBSTACLE_AVOID:
     OBSTACLES = create_obstacles(N_OBSTACLES, OBSTACLE_DIAMETER,
         x_min=X_MIN, x_max=X_MAX, y_min=Y_MIN, y_max=Y_MAX) 

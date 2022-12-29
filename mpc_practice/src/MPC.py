@@ -103,6 +103,25 @@ class MPC():
 
                 self.g = ca.vertcat(self.g, obs_constraint) 
 
+        if Config.MULTIPLE_OBSTACLE_AVOID:
+            for obstacle in Config.OBSTACLES:
+                obs_x = obstacle[0]
+                obs_y = obstacle[1]
+                obs_diameter = obstacle[2]
+
+                for k in range(self.N):
+                    #penalize obtacle distance
+                    x_pos = self.X[0,k]
+                    y_pos = self.X[1,k]                
+                    obs_distance = ca.sqrt((x_pos - obs_x)**2 + \
+                                            (y_pos - obs_y)**2)
+                    
+
+                    obs_constraint = -obs_distance + (Config.ROBOT_DIAMETER/2) + \
+                        (obs_diameter/2)
+
+                    self.g = ca.vertcat(self.g, obs_constraint)
+
     def init_solver(self):
         
         nlp_prob = {
@@ -208,6 +227,19 @@ class MPC():
                 #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end 
                 ubg[self.n_states*self.N+n_states:] = 0 
 
+            elif Config.MULTIPLE_OBSTACLE_AVOID:
+                """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
+                # constraints lower bound added 
+                num_constraints = Config.N_OBSTACLES * self.N
+                lbg =  ca.DM.zeros((self.n_states*(self.N+1)+num_constraints, 1))
+                # -infinity to minimum marign value for obs avoidance  
+                lbg[self.n_states*self.N+n_states:] = -ca.inf 
+                
+                # constraints upper bound
+                ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+num_constraints, 1))
+                #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end 
+                ubg[self.n_states*self.N+n_states:] = 0
+
             else:
                 lbg = ca.DM.zeros((self.n_states*(self.N+1), 1))
                 ubg  =  ca.DM.zeros((self.n_states*(self.N+1), 1))
@@ -256,7 +288,6 @@ class MPC():
                 self.dt_val, self.t0, self.state_init, self.u, self.f)
             
             self.target = [goal[0], goal[1], self.state_init[2][0]]
-            print("target",self.target)
 
             #shift forward the X0 vector
             self.X0 = ca.horzcat(
