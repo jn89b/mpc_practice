@@ -137,10 +137,11 @@ class MPC():
                 'max_iter': Config.MAX_ITER,
                 'print_level': Config.PRINT_LEVEL,
                 'acceptable_tol': Config.ACCEPT_TOL,
-                'acceptable_obj_change_tol': Config.ACCEPT_OBJ_TOL
+                'acceptable_obj_change_tol': Config.ACCEPT_OBJ_TOL,
             },
             # 'jit':True,
-            'print_time': Config.PRINT_TIME
+            'print_time': Config.PRINT_TIME,
+            'expand': 1
         }
 
         #create solver
@@ -207,7 +208,6 @@ class MPC():
             if Config.MOVING_OBSTACLE:
                 obs_x, obs_y = self.move_obstacle(obs_x, obs_y)
                 obstacle_history.append((obs_x, obs_y))        
-
 
             self.init_solver()
             self.compute_cost()

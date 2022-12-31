@@ -11,6 +11,7 @@ import numpy as np
 import math as m
 import casadi as ca
 from src import rotation_utils as rot
+#import rotation_utils as rot
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 
@@ -21,7 +22,6 @@ class Effector():
     """
     def __init__(self, effector_config:dict, use_casadi=False):
         
-
         self.effector_config = effector_config
         self.effector_range = effector_config['effector_range'] #meters
         self.effector_power = effector_config['effector_power'] #watts
@@ -34,12 +34,13 @@ class Effector():
         elif effector_config['effector_type'] == 'omnidirectional':
             self.effector_type = 'circle'
             self.effector_angle = 2*np.pi
+            
         else:
             raise Exception("Effector type not recognized")
 
 
         if use_casadi == True:
-            self.effector_profile = ca.DM(self.effector_profile)
+            # self.effector_profile = ca.DM(self.effector_profile)
             self.effector_power = ca.DM(self.effector_power)
             self.effector_range = ca.DM(self.effector_range)
             self.effector_angle = ca.DM(self.effector_angle)
@@ -49,6 +50,12 @@ class Effector():
         
         self.effector_location = None
 
+
+    def define_effector_states(self):
+        """
+        Define the states of the effector
+        """
+    
 
     def set_effector_location(self, ref_point, ref_angle):
         """
@@ -60,22 +67,38 @@ class Effector():
             self.effector_location = ca.horzcat(self.effector_location, ref_point)
         else:
             self.effector_location = (rot.rot2d(ref_angle) @ self.effector_profile.T).T + ref_point
-            self.effector_location = np.append(self.effector_location, [ref_point], axis=0)
+            #add the reference point to the effector location
+            self.effector_location = np.vstack((self.effector_location, ref_point))
+            
 
-
-    def compute_power_density(self, target_distance:float):
+    def compute_power_density(self, target_distance, effector_factor, use_casadi=False):
         """
         Compute the power density at a given distance from the effector
         """
-        if self.effector_type == 'triangle':
-            return self.effector_power / (target_distance**2 * 4*np.pi)
+        
+        #check if using casadi 
+        if self.use_casadi == True:
+            if self.effector_type == 'triangle':
+                return effector_factor * self.effector_power / (target_distance**2 * 4*ca.pi)
+            
+            elif self.effector_type == 'circle':
+                return self.effector_power / (target_distance**2 * 4*ca.pi)
 
-        elif self.effector_type == 'circle':
-            return self.effector_power / (target_distance**2 * 4*np.pi)
+            else:
+                raise Exception("Effector type not recognized")
 
+        #if not using casadi
         else:
-            raise Exception("Effector type not recognized")
+            if self.effector_type == 'triangle':
+                return self.effector_power / (target_distance**2 * 4*np.pi)
+
+            elif self.effector_type == 'circle':
+                return self.effector_power / (target_distance**2 * 4*np.pi)
+
+            else:
+                raise Exception("Effector type not recognized")
     
+
     def is_inside_effector(self, target:np.array):
         """check if target is inside the effector"""
         #catch if effector location has not been set
@@ -90,9 +113,27 @@ class Effector():
         else:
             return False
 
+
+def create_triangle_casadi(angle, distance):
+    #this is double the angle 
+    angle = angle/2
+    p_x = distance * ca.cos(angle)
+    p_y = distance * ca.sin(angle)
+    p_1 = ca.vertcat(p_x, p_y)
+
+    p_y = -distance * ca.sin(angle)
+    p_2 = ca.vertcat(p_x, p_y) #the other point on the the triangle
+
+    #compute the midpoint between p_1 and p_2
+    # p_3 = (p_1 + p_2) / 2
+
+    #return as an array of points
+    return ca.vertcat(p_1, p_2)
+
+
 #create 2d triangle with a given angle and distance
 def create_triangle(angle, distance):
-
+    angle = angle/2
     p_x = distance * np.cos(angle)
     p_y = distance * np.sin(angle)
     p_1 = np.array([p_x, p_y])
@@ -116,10 +157,10 @@ def create_semicircle(mid_point, current_psi, diameter, num_points=100):
     #return as a list of points
     return np.array([x, y])
 
-# current_psi = np.deg2rad(359)
+# current_psi = np.deg2rad(15)
 # effector_angle = np.deg2rad(30)
 # effector_range = 1
-# ref_point = np.array([0.0, 0.0])
+# ref_point = np.array([4.30877077348727, 0.5046069115552776])
 
 # effector_config = {
 #         'effector_range': 1, 
@@ -140,7 +181,10 @@ def create_semicircle(mid_point, current_psi, diameter, num_points=100):
 
 # #plot the effector points
 # import matplotlib.pyplot as plt
+# #set equal aspect ratio
+# plt.gca().set_aspect('equal', adjustable='box')
 # plt.plot(effector.effector_location[:,0], effector.effector_location[:,1], 'o')
+# plt.plot(ref_point[0], ref_point[1], 'o', color='red')
 # plt.plot(target[0], target[1], 'o')
 # plt.show()
 

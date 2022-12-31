@@ -138,7 +138,6 @@ if __name__ == '__main__':
     x_target = end[0]
     y_target = end[1]
 
-
     #for control_info each index is length [control x N]
     #for state_info each index is length [state x N+1]
     control_info = [control[0] for control in solution_list]
@@ -286,7 +285,7 @@ if __name__ == '__main__':
     line_ani = animation.FuncAnimation(fig2, update_lines, fargs=(position_data, patches), init_func=init,
                                         interval=5.0, blit=True, repeat=True, frames=position_data[0].shape[1]+1)
     
-    
+
 
 
 

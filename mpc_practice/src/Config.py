@@ -25,7 +25,7 @@ def create_obstacles(num_obstacles=1, obstacle_diameter=0.5,
 ## START 
 START_X = 0
 START_Y = 0
-START_PSI = 0
+START_PSI = np.deg2rad(0)
 
 ## GOAL
 GOAL_X = 10
@@ -44,11 +44,11 @@ OBSTACLE_VX = 0.0
 OBSTACLE_VY = 0.0
 
 X_MAX = 8
-Y_MAX = 7
-X_MIN = 3
+Y_MAX = 8
+X_MIN = 2
 Y_MIN = 2
 
-N_OBSTACLES = 3 # +1 for goal
+N_OBSTACLES = 10 # +1 for goal
 if MULTIPLE_OBSTACLE_AVOID:
     OBSTACLES = create_obstacles(N_OBSTACLES, OBSTACLE_DIAMETER,
         x_min=X_MIN, x_max=X_MAX, y_min=Y_MIN, y_max=Y_MAX) 
@@ -56,8 +56,8 @@ if MULTIPLE_OBSTACLE_AVOID:
 ROBOT_DIAMETER = 0.5
 
 #NLP solver options
-MAX_ITER = 2000
-MAX_TIME = 50
+MAX_ITER = 250
+MAX_TIME = 0.15
 PRINT_LEVEL = 1
 ACCEPT_TOL = 1e-6
 ACCEPT_OBJ_TOL = 1e-6

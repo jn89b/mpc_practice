@@ -20,7 +20,7 @@
 # ax.set_ylim(-2, 2)
 # ax.set_zlim(-2, 2)
 
-# def update(theta):
+# def update(theta)+M
 #     global quiver
 #     quiver.remove()
 #     quiver = ax.quiver(*get_arrow(theta))
