@@ -9,7 +9,7 @@ Path-following control for small fixed-wing unmanned aerial vehicles under wind 
 """
 
 class AirplaneSimpleModel():
-    def __init__(self) -> None:
+    def __init__(self):
         self.define_states()
         self.define_controls()
 
@@ -36,13 +36,13 @@ class AirplaneSimpleModel():
 
     def define_controls(self):
         """controls for your system"""
-        self.u_psi = ca.SX.sym('u_psi')
         self.u_theta = ca.SX.sym('u_theta')
+        self.u_psi = ca.SX.sym('u_psi')
         self.v_cmd = ca.SX.sym('v_cmd')
 
         self.controls = ca.vertcat(
-            self.u_psi,
             self.u_theta,
+            self.u_psi,
             self.v_cmd
         )
         self.n_controls = self.controls.size()[0] 
@@ -86,6 +86,9 @@ class AirplaneSimpleModelMPC(MPC.MPC):
 
         self.lbx['U'][2,:] = self.airplane_params['v_cmd_min']
         self.ubx['U'][2,:] = self.airplane_params['v_cmd_max']
+
+        self.lbx['X'][3,:] = self.airplane_params['theta_min']
+        self.ubx['X'][3,:] = self.airplane_params['theta_max']
 
     def solve_mpc(self, start, goal, t0=0, sim_time = 10):
         """main loop to solve for MPC"""
@@ -233,10 +236,12 @@ if __name__ == "__main__":
     airplane_params = {
         'u_psi_min': np.deg2rad(-45),
         'u_psi_max': np.deg2rad(45),
-        'u_theta_min': np.deg2rad(-30),
-        'u_theta_max': np.deg2rad(30),
+        'u_theta_min': np.deg2rad(-20),
+        'u_theta_max': np.deg2rad(20),
         'v_cmd_min': 1,
         'v_cmd_max': 5,
+        'theta_min': np.deg2rad(-25),
+        'theta_max': np.deg2rad(25),
     }  
 
     Q = ca.diag([1.0, 1.0, 1.0, 0.0, 0.0])
@@ -251,7 +256,7 @@ if __name__ == "__main__":
         airplane_params=airplane_params
     )
 
-    start = [0, 0, 0, 0, 0]
+    start = [0, 0, 5, 0, Config.START_PSI]
     goal = [Config.GOAL_X, Config.GOAL_Y, 10, 0, 0]
 
     mpc_airplane.init_decision_variables()
@@ -266,7 +271,8 @@ if __name__ == "__main__":
     #%% Data 
     control_info, state_info = data_utils.get_state_control_info(solution_list)
     state_history = data_utils.get_info_history(state_info, mpc_airplane.n_states)
-    
+    control_history = data_utils.get_info_history(control_info, mpc_airplane.n_controls)
+
     #%% Visualize
     import matplotlib.pyplot as plt
     from matplotlib import animation
@@ -296,6 +302,7 @@ if __name__ == "__main__":
 
 
     #%% plot 3d trajectory
+
     fig2 = plt.figure(figsize=(8,8))
     ax2 = fig2.add_subplot(111, projection='3d')
     ax2.set_xlabel('x')
@@ -303,6 +310,47 @@ if __name__ == "__main__":
     ax2.set_zlabel('z')
     ax2.plot(state_history[0], state_history[1], state_history[2], 'o-')
     ax2.plot(x_target, y_target, goal[2], 'x')
+    
+    #plot obstacles as cylinders
+    if Config.MULTIPLE_OBSTACLE_AVOID:
+        for obstacle in Config.OBSTACLES:
+            x = obstacle[0]
+            y = obstacle[1]
+            z = 0
+            radius = Config.OBSTACLE_DIAMETER/2
+            height = 10
+            n_space = 10
+
+            ax2.plot_surface(
+                x + radius * np.outer(np.cos(np.linspace(0, 2 * np.pi, n_space)), np.ones(n_space)),
+                y + radius * np.outer(np.sin(np.linspace(0, 2 * np.pi, n_space)), np.ones(n_space)),
+                z + height * np.outer(np.ones(n_space), np.linspace(0, 1, n_space)),
+                color='g',
+                alpha=0.2
+            )
+
+     
     #set plot to equal aspect ratio
     ax2.set_aspect('equal')
     
+    #%% plot psi and theta as subplots with time
+    #get time 
+    time = times[:-1]
+    fig3, ax3 = plt.subplots(3, 1, figsize=(8,8))
+    ax3[0].plot(time, np.rad2deg(state_history[3]), '-', label='theta')
+    ax3[0].plot(time, np.rad2deg(control_history[0]), '-', label='theta rate command')
+    ax3[0].set_xlabel('time [s]')
+    ax3[0].set_ylabel('theta')
+    ax3[0].legend()
+
+
+    ax3[1].plot(time, np.rad2deg(state_history[4]), '-', label='psi')
+    ax3[1].plot(time, np.rad2deg(control_history[1]), '-', label='psi rate command')
+    ax3[1].set_xlabel('time [s]')
+    ax3[1].set_ylabel('psi')
+    ax3[1].legend()
+
+    #plot velocity command in third subplot
+    ax3[2].plot(time, control_history[2], '-')
+    ax3[2].set_xlabel('time [s]')
+    ax3[2].set_ylabel('Airspeed [m/s]')

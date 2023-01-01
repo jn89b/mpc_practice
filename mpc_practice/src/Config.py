@@ -25,11 +25,11 @@ def create_obstacles(num_obstacles=1, obstacle_diameter=0.5,
 ## START 
 START_X = 0
 START_Y = 0
-START_PSI = np.deg2rad(0)
+START_PSI = np.deg2rad(20)
 
 ## GOAL
-GOAL_X = 10
-GOAL_Y = 10
+GOAL_X = 15
+GOAL_Y = 15
 GOAL_PSI = 0
 
 #### OBSTACLES ####
@@ -48,7 +48,7 @@ Y_MAX = 10
 X_MIN = 2
 Y_MIN = 2
 
-N_OBSTACLES = 20 # +1 for goal
+N_OBSTACLES = 5 # +1 for goal
 if MULTIPLE_OBSTACLE_AVOID:
     OBSTACLES = create_obstacles(N_OBSTACLES, OBSTACLE_DIAMETER,
         x_min=X_MIN, x_max=X_MAX, y_min=Y_MIN, y_max=Y_MAX) 
