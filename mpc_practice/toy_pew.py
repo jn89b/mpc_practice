@@ -28,7 +28,7 @@ class CarMPCEffector(MPC.MPC):
         """reset boundary constraints"""
 
         self.lbx['U'][0,:] = self.toy_car_params['v_min']
-        self.ubx['U'][0,:1] = self.toy_car_params['v_max']
+        self.ubx['U'][0,:] = self.toy_car_params['v_max']
 
         self.lbx['U'][1,:] = self.toy_car_params['psi_rate_min']
         self.ubx['U'][1,:] = self.toy_car_params['psi_rate_max']
@@ -202,7 +202,7 @@ if __name__ == '__main__':
     mpc_car.define_bound_constraints()
     mpc_car.add_additional_constraints()
 
-    times, solution_list, obs_history = mpc_car.solve_mpc(start, end, 0, 20)
+    times, solution_list, obs_history = mpc_car.solve_mpc(start, end, 0, 10)
     
     #%% Testing out function parser 
     control_info, state_info = get_state_control_info(solution_list)
@@ -220,12 +220,19 @@ if __name__ == '__main__':
     effector_history = []
     num_hits = []
     mpc_car.effector.use_casadi = False
+    
     for i in range(len(times)-1):
         ref_point = [state_history[0,i], state_history[1,i]]
         ref_angle = state_history[2,i]
         mpc_car.effector.set_effector_location(ref_point, ref_angle)
+
+                
+        effector_array = np.array([[state_history[0,i], state_history[1,i]]])
         effector_location = np.transpose(mpc_car.effector.effector_location)
-        effector_history.append(effector_location)
+
+        effector_array = np.hstack((np.transpose(effector_array), effector_location)) 
+
+        effector_history.append(effector_array)
         
         #check if target is in effector
         target_in_effector = mpc_car.effector.is_inside_effector(end)

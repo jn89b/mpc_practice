@@ -71,9 +71,6 @@ class CarMPC(MPC.MPC):
 
     def add_additional_constraints(self):
         """reset boundary constraints"""
-        """
-        REFACTOR THIS
-        """
 
         self.lbx['U'][0,:] = self.toy_car_params['v_min']
         self.ubx['U'][0,:] = self.toy_car_params['v_max']
