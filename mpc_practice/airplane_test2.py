@@ -21,6 +21,7 @@ class AirplaneSimpleModel():
         self.z_f = ca.SX.sym('z_f')
 
         #attitude
+        self.phi_f = ca.SX.sym('phi_f')
         self.theta_f = ca.SX.sym('theta_f')
         self.psi_f = ca.SX.sym('psi_f')
 
@@ -28,6 +29,7 @@ class AirplaneSimpleModel():
             self.x_f,
             self.y_f,
             self.z_f,
+            self.phi_f,
             self.theta_f,
             self.psi_f
         )
@@ -36,11 +38,13 @@ class AirplaneSimpleModel():
 
     def define_controls(self):
         """controls for your system"""
+        self.u_phi = ca.SX.sym('u_phi')
         self.u_theta = ca.SX.sym('u_theta')
         self.u_psi = ca.SX.sym('u_psi')
         self.v_cmd = ca.SX.sym('v_cmd')
 
         self.controls = ca.vertcat(
+            self.u_phi,
             self.u_theta,
             self.u_psi,
             self.v_cmd
@@ -49,16 +53,31 @@ class AirplaneSimpleModel():
 
     def set_state_space(self):
         """define the state space of your system"""
-        self.x_fdot = self.v_cmd * ca.cos(self.theta_f) * ca.cos(self.psi_f)
+        self.g = 9.81 #m/s^2
+        #body to inertia frame
+        self.x_fdot = self.v_cmd * ca.cos(self.theta_f) * ca.cos(self.psi_f) 
         self.y_fdot = self.v_cmd * ca.cos(self.theta_f) * ca.sin(self.psi_f)
         self.z_fdot = -self.v_cmd * ca.sin(self.theta_f)
+        
+        self.phi_fdot = self.u_phi
         self.theta_fdot = self.u_theta
-        self.psi_fdot = self.u_psi
+        #self.psi_fdot = self.u_psi
+
+
+        #self.phi_fdot = self.u_phi 
+        # self.theta_fdot = self.u_theta 
+        # self.psi_fdot = self.u_psi
+        #self.theta_fdot = self.u_theta * (ca.cos(self.phi_f)) - (self.u_psi * ca.sin(self.phi_f))
+        #self.psi_fdot = (self.g * ca.cos(self.theta_f) * (ca.tan(self.phi_fdot) / self.v_cmd))
+        self.psi_fdot = self.u_psi + (self.g * (ca.tan(self.phi_f) / self.v_cmd))
+        #self.psi_fdot = self.g * ca.tan(#self.u_psi 
+        #self.psi_fdot = (self.u_theta * ca.sin(self.phi_f)) + (self.u_psi * ca.cos(self.phi_f))
 
         self.z_dot = ca.vertcat(
             self.x_fdot,
             self.y_fdot,
             self.z_fdot,
+            self.phi_fdot,
             self.theta_fdot,
             self.psi_fdot
         )
@@ -78,20 +97,26 @@ class AirplaneSimpleModelMPC(MPC.MPC):
     def add_additional_constraints(self):
         """add additional constraints to the MPC problem"""
         #add control constraints
-        self.lbx['U'][0,:] = self.airplane_params['u_theta_min']
-        self.ubx['U'][0,:] = self.airplane_params['u_theta_max']
+        self.lbx['U'][0,:] = self.airplane_params['u_phi_min']
+        self.ubx['U'][0,:] = self.airplane_params['u_phi_max']
 
-        self.lbx['U'][1,:] = self.airplane_params['u_psi_min']
-        self.ubx['U'][1,:] = self.airplane_params['u_psi_max']
+        self.lbx['U'][1,:] = self.airplane_params['u_theta_min']
+        self.ubx['U'][1,:] = self.airplane_params['u_theta_max']
 
-        self.lbx['U'][2,:] = self.airplane_params['v_cmd_min']
-        self.ubx['U'][2,:] = self.airplane_params['v_cmd_max']
+        self.lbx['U'][2,:] = self.airplane_params['u_psi_min']
+        self.ubx['U'][2,:] = self.airplane_params['u_psi_max']
 
-        self.lbx['X'][2,:] = self.airplane_params['z_min']
-        self.ubx['X'][2,:] = self.airplane_params['z_max']
+        self.lbx['U'][3,:] = self.airplane_params['v_cmd_min']
+        self.ubx['U'][3,:] = self.airplane_params['v_cmd_max']
 
-        self.lbx['X'][3,:] = self.airplane_params['theta_min']
-        self.ubx['X'][3,:] = self.airplane_params['theta_max']
+        # self.lbx['X'][2,:] = self.airplane_params['z_min']
+        # self.ubx['X'][2,:] = self.airplane_params['z_max']
+
+        self.lbx['X'][3,:] = self.airplane_params['phi_min']
+        self.ubx['X'][3,:] = self.airplane_params['phi_max']
+
+        self.lbx['X'][4,:] = self.airplane_params['theta_min']
+        self.ubx['X'][4,:] = self.airplane_params['theta_max']
 
     def solve_mpc(self, start, goal, t0=0, sim_time = 10):
         """main loop to solve for MPC"""
@@ -116,7 +141,8 @@ class AirplaneSimpleModelMPC(MPC.MPC):
             obs_x = Config.OBSTACLE_X
             obs_y = Config.OBSTACLE_Y
 
-        while (ca.norm_2(self.state_init - self.state_target) > 1e-1) \
+        error_tol = 0.5
+        while (ca.norm_2(self.state_init - self.state_target) > error_tol) \
             and (self.t0 < sim_time):
             #initial time reference
             t1 = time()
@@ -196,6 +222,7 @@ class AirplaneSimpleModelMPC(MPC.MPC):
                                  self.n_states, self.N+1)
 
 
+        
             #this is where we shift the time step
             self.t0, self.state_init, self.u0 = self.shift_timestep(
                 self.dt_val, self.t0, self.state_init, self.u, self.f)
@@ -237,20 +264,24 @@ if __name__ == "__main__":
     airplane.set_state_space()
 
     airplane_params = {
-        'u_psi_min': np.deg2rad(-45),
-        'u_psi_max': np.deg2rad(45),
-        'u_theta_min': np.deg2rad(-5),
-        'u_theta_max': np.deg2rad(5),
+        'u_psi_min': np.deg2rad(-10),
+        'u_psi_max': np.deg2rad(10),
+        'u_phi_min': np.deg2rad(-60),
+        'u_phi_max': np.deg2rad(60),
+        'u_theta_min': np.deg2rad(-20),
+        'u_theta_max': np.deg2rad(20),
         'z_min': 0,
-        'z_max': 20,
+        'z_max': 25,
         'v_cmd_min': 20,
-        'v_cmd_max': 25,
+        'v_cmd_max': 30,
         'theta_min': np.deg2rad(-25),
         'theta_max': np.deg2rad(25),
+        'phi_min': np.deg2rad(-45),
+        'phi_max': np.deg2rad(45),
     }  
 
-    Q = ca.diag([1.0, 1.0, 1.0, 0.0, 0.0])
-    R = ca.diag([1.0, 1.0, 1.0])
+    Q = ca.diag([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])
+    R = ca.diag([2.0, 2.0, 2.0, 2.0])
 
     mpc_airplane = AirplaneSimpleModelMPC(
         model=airplane,
@@ -261,8 +292,8 @@ if __name__ == "__main__":
         airplane_params=airplane_params
     )
 
-    start = [0, 0, 10, 0, Config.START_PSI]
-    goal = [Config.GOAL_X, Config.GOAL_Y, 10, 0, 0]
+    start = [0, 0, 0, 0, 0, Config.START_PSI]
+    goal = [Config.GOAL_X, Config.GOAL_Y, 10, 0, 0, 0]
 
     mpc_airplane.init_decision_variables()
     mpc_airplane.reinit_start_goal(start, goal)
@@ -271,7 +302,7 @@ if __name__ == "__main__":
     mpc_airplane.define_bound_constraints()
     mpc_airplane.add_additional_constraints()
 
-    times, solution_list, obstacle_history = mpc_airplane.solve_mpc(start, goal, 0, 10)
+    times, solution_list, obstacle_history = mpc_airplane.solve_mpc(start, goal, 0, 25)
 
     #%% Data 
     control_info, state_info = data_utils.get_state_control_info(solution_list)
@@ -309,12 +340,11 @@ if __name__ == "__main__":
     #%% plot 3d trajectory
 
     fig2 = plt.figure(figsize=(8,8))
-    z_min = min(state_history[2])
-    z_max = max(state_history[2])
-
     ax2 = fig2.add_subplot(111, projection='3d')
-    
-    ax2.set_zlim(z_min, z_max)
+
+    z_min = min(state_history[2]) - 1
+    z_upp = max(state_history[2]) + 1
+
     ax2.set_xlabel('x')
     ax2.set_ylabel('y')
     ax2.set_zlabel('z')
@@ -329,7 +359,7 @@ if __name__ == "__main__":
             y = obstacle[1]
             z = 0
             radius = Config.OBSTACLE_DIAMETER/2
-            height = 20
+            height = z_upp - z_min
             n_space = 10
 
             ax2.plot_surface(
@@ -340,28 +370,40 @@ if __name__ == "__main__":
                 alpha=0.2
             )
 
-     
+    ax2.set_zlim(z_min, z_upp)
     #set plot to equal aspect ratio
-    #ax2.set_aspect('equal')
+    ax2.set_aspect('equal')
     
     #%% plot psi and theta as subplots with time
     #get time 
     time = times[:-1]
-    fig3, ax3 = plt.subplots(3, 1, figsize=(8,8))
-    ax3[0].plot(time, np.rad2deg(state_history[3]), '-', label='theta')
-    ax3[0].plot(time, np.rad2deg(control_history[0]), '-', label='theta rate command')
+    fig3, ax3 = plt.subplots(4, 1, figsize=(8,8))
+    ax3[0].plot(time, np.rad2deg(state_history[4]), '-', label='theta')
+    ax3[0].plot(time, np.rad2deg(control_history[1]), '-', label='theta rate command')
     ax3[0].set_xlabel('time [s]')
     ax3[0].set_ylabel('theta')
     ax3[0].legend()
 
 
-    ax3[1].plot(time, np.rad2deg(state_history[4]), '-', label='psi')
-    ax3[1].plot(time, np.rad2deg(control_history[1]), '-', label='psi rate command')
+    #plot phi command in fourth subplot
+    ax3[1].plot(time, np.rad2deg(state_history[3]), '-', label='phi')
+    ax3[1].plot(time, np.rad2deg(control_history[0]), '-', label='phi command')
     ax3[1].set_xlabel('time [s]')
-    ax3[1].set_ylabel('psi')
+    ax3[1].set_ylabel('phi [deg]')
     ax3[1].legend()
+    
+
+    ax3[2].plot(time, np.rad2deg(state_history[5]), '-', label='psi')
+    ax3[2].plot(time, np.rad2deg(control_history[2]), '-', label='psi rate command')
+    #draw a line at 360 deg
+    ax3[2].plot([time[0], time[-1]], [360, 360], '--', color='k')
+    ax3[2].set_xlabel('time [s]')
+    ax3[2].set_ylabel('psi')
+    ax3[2].legend()
 
     #plot velocity command in third subplot
-    ax3[2].plot(time, control_history[2], '-')
-    ax3[2].set_xlabel('time [s]')
-    ax3[2].set_ylabel('Airspeed [m/s]')
+    ax3[3].plot(time, control_history[3], '-', label='airspeed command')
+    ax3[3].set_xlabel('time [s]')
+    ax3[3].set_ylabel('Airspeed [m/s]')
+    ax3[3].legend()
+
