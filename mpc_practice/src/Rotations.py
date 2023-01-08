@@ -64,9 +64,9 @@ yaw = np.deg2rad(0)
 #function to update the plot
 def update(i):
     global roll, pitch, yaw
-    roll = np.deg2rad(i)
-    pitch = np.deg2rad(i)
-    yaw = np.deg2rad(2)
+    roll = np.deg2rad(0)
+    pitch = np.deg2rad(0)
+    yaw = np.deg2rad(i)
     rotated_point = rot3d(roll, pitch, yaw) @ point
     point_plot.set_data(rotated_point[0], rotated_point[1])
     point_plot.set_3d_properties(rotated_point[2])

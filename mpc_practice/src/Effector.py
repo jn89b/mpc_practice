@@ -34,7 +34,12 @@ class Effector():
         elif effector_config['effector_type'] == 'omnidirectional':
             self.effector_type = 'circle'
             self.effector_angle = 2*np.pi
-            
+
+        if effector_config['effector_type'] == 'directional_3d':
+            self.effector_type = 'triangle'
+            self.effector_angle = effector_config['effector_angle']
+            self.effector_profile = create_pyramid(self.effector_angle, self.effector_range)    
+        
         else:
             raise Exception("Effector type not recognized")
 
@@ -70,6 +75,18 @@ class Effector():
             #add the reference point to the effector location
             self.effector_location = np.vstack((self.effector_location, ref_point))
             
+    def set_effector_location3d(self, ref_point, ref_roll, ref_pitch, ref_yaw):
+        """
+        Set the location of the effector relative to a reference point
+        based on reference roll, pitch, and yaw
+        """
+        if self.use_casadi == True:
+            self.effector_location = (rot.rot3d_casadi(ref_roll,ref_pitch, ref_yaw) @ self.effector_profile) + ref_point
+            self.effector_location = ca.horzcat(self.effector_location, ref_point)
+        else:
+            self.effector_location = (rot.rot3d(ref_roll,ref_pitch, ref_yaw) @ np.transpose(self.effector_profile)).T + ref_point
+            #add the reference point to the effector location
+            self.effector_location = np.vstack((self.effector_location, ref_point))
 
     def compute_power_density(self, target_distance, effector_factor, use_casadi=False):
         """
@@ -143,6 +160,18 @@ def create_triangle(angle, distance):
 
     #compute the midpoint between p_1 and p_2
     # p_3 = (p_1 + p_2) / 2
+
+    #return as an array of points
+    return np.array([p_1, p_2])
+
+def create_pyramid(angle, distance):
+    angle = angle/2
+    p_x = distance * np.cos(angle)
+    p_y = distance * np.sin(angle)
+    p_1 = np.array([p_x, p_y, 0])
+
+    p_y = -distance * np.sin(angle)
+    p_2 = np.array([p_x, p_y, 0]) #the other point on the the triangle
 
     #return as an array of points
     return np.array([p_1, p_2])

@@ -54,7 +54,6 @@ class CarMPCEffector(MPC.MPC):
                 + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
                 + controls.T @ R @ controls                 
             
-
             ##Runge Kutta
             k1 = self.f(states, controls)
             k2 = self.f(states + self.dt_val/2*k1, controls)
