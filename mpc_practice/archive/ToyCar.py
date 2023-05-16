@@ -1,7 +1,7 @@
 from time import time 
 import casadi as ca
 import numpy as np
-
+from os import system
 step_horizon = 0.1 #time between steps in seconds 
 N = 10 #number of look ahead steps
 
@@ -11,8 +11,8 @@ y_init = 0
 psi_init = 0
 
 #target parameters
-x_target = 50
-y_target = 50
+x_target = 30
+y_target = 35
 psi_target = np.deg2rad(0)
 
 v_max = 10
@@ -190,13 +190,26 @@ class Optimization():
                 'max_iter': 2000,
                 'print_level': 0,
                 'acceptable_tol': 1e-8,
-                'acceptable_obj_change_tol': 1e-6
+                'acceptable_obj_change_tol': 1e-6,
+                'warm_start_init_point': "yes"
             },
             # 'jit':True,
+            # 'expand':True,
             'print_time': 0
         }
         
+        self.so_path = "nmpc_v0.so"
+        # self.solver = ca.nlpsol("solver", "ipopt", nlp_prob, opts)
+        # # jit compile for speed up
+        # print("Generating shared library........")
+        # cname = self.solver.generate_dependencies("nmpc_v0.c")  
+        # system('gcc -fPIC -shared -O3 ' + cname + ' -o ' + self.so_path) # -O3
+
         self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
+
+        #reload compiled mpc
+        # self.solver = ca.nlpsol("solver", "ipopt", self.so_path , opts)
+        print("got solver")
 
 
     def solve_mpc(self,start, goal, t0, mpc_iter):
@@ -386,6 +399,8 @@ if __name__ == '__main__':
     ax1.plot(actual_x, actual_y)
     ax1.plot(x_target, y_target, 'x')
     
+    plt.show()
+
     fig2, ax2 = plt.subplots(figsize=(8,8))
     ax2.plot(times[1:], np.rad2deg(actual_psi))
     
@@ -395,59 +410,59 @@ if __name__ == '__main__':
     horizon_pos_array = np.transpose(
         np.array((horizon_x, horizon_y, horizon_psi), dtype=float))
     
-    #%% Animate 
-    def init():
+    # #%% Animate 
+    # def init():
         
-        return path, horizon
+    #     return path, horizon
 
-    def animate(i):
-        # get variables
-        x = cat_states[0, 0, i]
-        y = cat_states[1, 0, i]
-        th = cat_states[2, 0, i]
+    # def animate(i):
+    #     # get variables
+    #     x = cat_states[0, 0, i]
+    #     y = cat_states[1, 0, i]
+    #     th = cat_states[2, 0, i]
 
-        # update path
-        if i == 0:
-            path.set_data(np.array([]), np.array([]))
-        x_new = np.hstack((path.get_xdata(), x))
-        y_new = np.hstack((path.get_ydata(), y))
-        path.set_data(x_new, y_new)
+    #     # update path
+    #     if i == 0:
+    #         path.set_data(np.array([]), np.array([]))
+    #     x_new = np.hstack((path.get_xdata(), x))
+    #     y_new = np.hstack((path.get_ydata(), y))
+    #     path.set_data(x_new, y_new)
 
-        # update horizon
-        x_new = cat_states[0, :, i]
-        y_new = cat_states[1, :, i]
-        horizon.set_data(x_new, y_new)
+    #     # update horizon
+    #     x_new = cat_states[0, :, i]
+    #     y_new = cat_states[1, :, i]
+    #     horizon.set_data(x_new, y_new)
 
-        # update current_state
-        current_state.set_xy(create_triangle([x, y, th], update=True))
+    #     # update current_state
+    #     current_state.set_xy(create_triangle([x, y, th], update=True))
 
-        # update target_state
-        # xy = target_state.get_xy()
-        # target_state.set_xy(xy)            
+    #     # update target_state
+    #     # xy = target_state.get_xy()
+    #     # target_state.set_xy(xy)            
 
-        return path, horizon
+    #     return path, horizon
 
     
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.set_xlim(left = 0, right = 50)
-    ax.set_ylim(bottom = 0, top = 50)
+    # fig, ax = plt.subplots(figsize=(8, 8))
+    # ax.set_xlim(left = 0, right = 50)
+    # ax.set_ylim(bottom = 0, top = 50)
     
-    # create lines:
-    #   path
-    path, = ax.plot([], [], 'k', linewidth=2)
-    #   horizon
-    horizon, = ax.plot([], [], 'x-g', alpha=0.5)
+    # # create lines:
+    # #   path
+    # path, = ax.plot([], [], 'k', linewidth=2)
+    # #   horizon
+    # horizon, = ax.plot([], [], 'x-g', alpha=0.5)
     
-    sim = animation.FuncAnimation(
-        fig=fig,
-        func=animate,
-        init_func=init,
-        frames=len(times),
-        interval=step_horizon*100,
-        blit=True,
-        repeat=True
-    )
-    plt.show()    
+    # sim = animation.FuncAnimation(
+    #     fig=fig,
+    #     func=animate,
+    #     init_func=init,
+    #     frames=len(times),
+    #     interval=step_horizon*100,
+    #     blit=True,
+    #     repeat=True
+    # )
+    # plt.show()    
 
     
  

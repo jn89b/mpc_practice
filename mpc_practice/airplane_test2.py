@@ -96,6 +96,41 @@ class AirplaneSimpleModelMPC(MPC.MPC):
 
         self.airplane_params = airplane_params
 
+    def init_decision_variables(self):
+        #decision variables
+        """intialize decision variables for state space models"""
+        self.X = ca.SX.sym('X', self.n_states, self.N + 1)
+        self.U = ca.SX.sym('U', self.n_controls, self.N)
+        self.DU = ca.SX.sym('DU', self.n_controls, self.N)
+
+        #column vector for storing initial and target locations
+        self.P = ca.SX.sym('P', self.n_states + self.n_states)
+
+        self.OPT_variables = ca.vertcat(
+            self.X.reshape((-1, 1)),   # Example: 3x11 ---> 33x1 where 3=states, 11=N+1
+            self.U.reshape((-1, 1)),
+            self.DU.reshape((-1, 1))
+        )
+
+    def define_bound_constraints(self):
+        """define bound constraints of system"""
+        self.variables_list = [self.X, self.U, self.DU]
+        self.variables_name = ['X', 'U', 'DU']
+        
+        #function to turn decision variables into one long row vector
+        self.pack_variables_fn = ca.Function('pack_variables_fn', self.variables_list, 
+                                             [self.OPT_variables], self.variables_name, 
+                                             ['flat'])
+        
+        #function to turn decision variables into respective matrices
+        self.unpack_variables_fn = ca.Function('unpack_variables_fn', [self.OPT_variables], 
+                                               self.variables_list, ['flat'], self.variables_name)
+
+        ##helper functions to flatten and organize constraints
+        self.lbx = self.unpack_variables_fn(flat=-ca.inf)
+        self.ubx = self.unpack_variables_fn(flat=ca.inf)
+
+
     def add_additional_constraints(self):
         """add additional constraints to the MPC problem"""
         #add control constraints
@@ -111,6 +146,18 @@ class AirplaneSimpleModelMPC(MPC.MPC):
         self.lbx['U'][3,:] = self.airplane_params['v_cmd_min']
         self.ubx['U'][3,:] = self.airplane_params['v_cmd_max']
 
+        self.lbx['DU'][0,:] = self.airplane_params['du_phi_min']
+        self.ubx['DU'][0,:] = self.airplane_params['du_phi_max']
+
+        self.lbx['DU'][1,:] = self.airplane_params['du_theta_min']
+        self.ubx['DU'][1,:] = self.airplane_params['du_theta_max']
+
+        self.lbx['DU'][2,:] = self.airplane_params['du_psi_min']
+        self.ubx['DU'][2,:] = self.airplane_params['du_psi_max']
+
+        self.lbx['DU'][3,:] = self.airplane_params['dv_cmd_min']
+        self.ubx['DU'][3,:] = self.airplane_params['dv_cmd_max']
+        
         self.lbx['X'][2,:] = self.airplane_params['z_min']
         self.ubx['X'][2,:] = self.airplane_params['z_max']
 
@@ -119,6 +166,77 @@ class AirplaneSimpleModelMPC(MPC.MPC):
 
         self.lbx['X'][4,:] = self.airplane_params['theta_min']
         self.ubx['X'][4,:] = self.airplane_params['theta_max']
+
+    def compute_cost(self):
+        #tired of writing self
+        #dynamic constraints 
+        self.g = []
+        self.g = self.X[:,0] - self.P[:self.n_states]
+        
+        P = self.P
+        Q = self.Q
+        R = self.R
+        n_states = self.n_states
+        
+        for k in range(self.N):
+            states = self.X[:, k]
+            controls = self.U[:, k]
+            state_next = self.X[:, k+1]
+            
+            if k == self.N-1:
+                control_next = self.U[:, k]
+            else:
+                control_next = self.U[:, k+1]
+
+            #penalize states and controls for now, can add other stuff too
+            self.cost_fn = self.cost_fn \
+                + (states - P[n_states:]).T @ Q @ (states - P[n_states:]) \
+                + controls.T @ R @ controls                 
+
+            # self.cost_fn =             
+            ##Runge Kutta
+            k1 = self.f(states, controls)
+            k2 = self.f(states + self.dt_val/2*k1, controls)
+            k3 = self.f(states + self.dt_val/2*k2, controls)
+            k4 = self.f(states + self.dt_val * k3, controls)
+            state_next_RK4 = states + (self.dt_val / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+            self.g = ca.vertcat(self.g, state_next - state_next_RK4) #dynamic constraints
+            self.g = ca.vertcat(self.g, control_next - controls) #control rate constraints
+
+        if Config.OBSTACLE_AVOID:
+            for k in range(self.N):
+                #penalize obtacle distance
+                x_pos = self.X[0,k]
+                y_pos = self.X[1,k]                
+                obs_distance = ca.sqrt((x_pos - Config.OBSTACLE_X)**2 + \
+                                        (y_pos - Config.OBSTACLE_Y)**2)
+                
+
+                obs_constraint = -obs_distance + (Config.ROBOT_DIAMETER/2) + \
+                    (Config.OBSTACLE_DIAMETER/2)
+
+                self.g = ca.vertcat(self.g, obs_constraint) 
+
+        if Config.MULTIPLE_OBSTACLE_AVOID:
+            for obstacle in Config.OBSTACLES:
+                obs_x = obstacle[0]
+                obs_y = obstacle[1]
+                obs_diameter = obstacle[2]
+
+                for k in range(self.N):
+                    #penalize obtacle distance
+                    x_pos = self.X[0,k]
+                    y_pos = self.X[1,k]                
+                    obs_distance = ca.sqrt((x_pos - obs_x)**2 + \
+                                            (y_pos - obs_y)**2)
+                    
+
+                    obs_constraint = -obs_distance + (Config.ROBOT_DIAMETER/2) + \
+                        (obs_diameter/2)
+
+                    self.g = ca.vertcat(self.g, obs_constraint)
+
+
 
     def solve_mpc(self, start, goal, t0=0, sim_time = 10):
         """main loop to solve for MPC"""
@@ -133,7 +251,9 @@ class AirplaneSimpleModelMPC(MPC.MPC):
         self.state_target = ca.DM(goal)  # target state
         self.t0 = t0
         self.u0 = ca.DM.zeros((self.n_controls, self.N))  # initial control
-        self.X0 = ca.repmat(self.state_init, 1, self.N+1)         # initial state full
+        self.DU0 = ca.DM.zeros((self.n_controls, self.N))  # initial control
+        self.X0 = ca.repmat(self.state_init, 1, self.N+1) # initial state full
+        
         times = np.array([[0]]) 
         time_history = [self.t0]
         mpc_iter = 0
@@ -201,7 +321,8 @@ class AirplaneSimpleModelMPC(MPC.MPC):
             # optimization variable current state
             args['x0'] = ca.vertcat(
                 ca.reshape(self.X0, n_states*(self.N+1), 1),
-                ca.reshape(self.u0, n_controls*self.N, 1)
+                ca.reshape(self.u0, n_controls*self.N, 1),
+                ca.reshape(self.DU0, n_controls*self.N, 1)
             )
 
             #this is where we solve
@@ -267,18 +388,37 @@ if __name__ == "__main__":
     airplane_params = {
         'u_psi_min': np.deg2rad(-10),
         'u_psi_max': np.deg2rad(10),
+
         'u_phi_min': np.deg2rad(-30),
         'u_phi_max': np.deg2rad(30),
+
         'u_theta_min': np.deg2rad(-20),
         'u_theta_max': np.deg2rad(20),
+
+        'du_phi_min': np.deg2rad(-5),
+        'du_phi_max': np.deg2rad(5),
+
+        'du_theta_min': np.deg2rad(-5),
+        'du_theta_max': np.deg2rad(5),
+
+        'du_psi_min': np.deg2rad(-5),
+        'du_psi_max': np.deg2rad(5),
+
+        'dv_cmd_min': np.deg2rad(-5),
+        'dv_cmd_max': np.deg2rad(5),
+
         'z_min': 0.0,
         'z_max': 100.0,
+
         'v_cmd_min': 10,
         'v_cmd_max': 30,
+
         'theta_min': np.deg2rad(-25),
         'theta_max': np.deg2rad(25),
+
         'phi_min': np.deg2rad(-45),
         'phi_max': np.deg2rad(45),
+
     }  
 
     Q = ca.diag([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])
@@ -302,8 +442,10 @@ if __name__ == "__main__":
     mpc_airplane.init_solver()
     mpc_airplane.define_bound_constraints()
     mpc_airplane.add_additional_constraints()
+    
+    sol = mpc_airplane.solve_mpc(start,goal,0,10)
 
-    times, solution_list, obstacle_history = mpc_airplane.solve_mpc(start, goal, 0, 10)
+    # times, solution_list, obstacle_history = mpc_airplane.solve_mpc(start, goal, 0, 10)
 
     #%% Data 
     control_info, state_info = data_utils.get_state_control_info(solution_list)

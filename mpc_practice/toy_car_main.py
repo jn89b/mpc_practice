@@ -106,8 +106,8 @@ if __name__ == '__main__':
     R = ca.diag([1, 1])
 
     toy_car_params = {
-        'v_min': 1,
-        'v_max': 3,
+        'v_min': 5,
+        'v_max': 15,
         'psi_rate_min': np.deg2rad(-45),
         'psi_rate_max': np.deg2rad(45)
     }
@@ -123,6 +123,7 @@ if __name__ == '__main__':
     mpc_car.add_additional_constraints()
 
     times, solution_list, obs_history = mpc_car.solve_mpc(start, end, 0, 15)
+    print(solution_list)
 
     #%% Visualize results 
     import matplotlib.pyplot as plt

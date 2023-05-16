@@ -49,7 +49,8 @@ class MPC():
         
         #function to turn decision variables into respective matrices
         self.unpack_variables_fn = ca.Function('unpack_variables_fn', [self.OPT_variables], 
-                                               self.variables_list, ['flat'], self.variables_name)
+                                               self.variables_list, ['flat'], 
+                                               self.variables_name)
 
         ##helper functions to flatten and organize constraints
         self.lbx = self.unpack_variables_fn(flat=-ca.inf)
@@ -138,6 +139,7 @@ class MPC():
                 'print_level': Config.PRINT_LEVEL,
                 'acceptable_tol': Config.ACCEPT_TOL,
                 'acceptable_obj_change_tol': Config.ACCEPT_OBJ_TOL,
+                # 'linear_solver': 'ma27',
             },
             # 'jit':True,
             'print_time': Config.PRINT_TIME,
